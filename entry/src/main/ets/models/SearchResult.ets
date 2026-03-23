@@ -123,7 +123,10 @@ export class SearchTopic {
       const tags: string[] = [];
       for (let i = 0; i < tagsArr.length; i++) {
         const item = tagsArr[i];
-        if (typeof item === 'string') tags.push(item as string);
+        const name: string = SearchTopic.parseTagName(item);
+        if (name.length > 0) {
+          tags.push(name);
+        }
       }
       t.tags = tags;
     }
@@ -139,6 +142,31 @@ export class SearchTopic {
     const createdAtVal = json['created_at'];
     t.createdAt = createdAtVal !== undefined && createdAtVal !== null ? TimeUtils.parseUtcTime(createdAtVal as string) : null;
     return t;
+  }
+
+  private static parseTagName(raw: Object): string {
+    if (raw === null || raw === undefined) {
+      return '';
+    }
+    if (typeof raw === 'string') {
+      return (raw as string).trim();
+    }
+    if (typeof raw === 'number' || typeof raw === 'boolean') {
+      return raw.toString().trim();
+    }
+    try {
+      const obj: Record<string, Object> = raw as Record<string, Object>;
+      const nameVal = obj['name'];
+      if (typeof nameVal === 'string') {
+        return (nameVal as string).trim();
+      }
+      const slugVal = obj['slug'];
+      if (typeof slugVal === 'string') {
+        return (slugVal as string).trim();
+      }
+    } catch (_) {
+    }
+    return '';
   }
 }
 

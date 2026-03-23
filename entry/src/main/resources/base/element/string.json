@@ -53,6 +53,38 @@
       "value": "输入关键词搜索"
     },
     {
+      "name": "search_no_results",
+      "value": "未找到相关结果"
+    },
+    {
+      "name": "search_users",
+      "value": "用户"
+    },
+    {
+      "name": "search_sort_label",
+      "value": "排序："
+    },
+    {
+      "name": "search_sort_relevance",
+      "value": "相关性"
+    },
+    {
+      "name": "search_sort_latest",
+      "value": "最新帖子"
+    },
+    {
+      "name": "search_sort_likes",
+      "value": "最受欢迎"
+    },
+    {
+      "name": "search_sort_views",
+      "value": "最多浏览"
+    },
+    {
+      "name": "search_sort_latest_topic",
+      "value": "最新话题"
+    },
+    {
       "name": "recent_searches",
       "value": "最近搜索"
     },

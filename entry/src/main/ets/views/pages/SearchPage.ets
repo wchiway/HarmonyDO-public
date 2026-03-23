@@ -5,11 +5,12 @@ import { ApiClient } from '../../services/network/ApiClient';
 import { LoadingSpinner } from '../components/LoadingSpinner';
 import { ErrorView } from '../components/ErrorView';
 import { SmartAvatar } from '../components/SmartAvatar';
-import { TimeUtils } from '../../common/utils/TimeUtils';
 import { RouterManager } from '../../common/utils/RouterManager';
 import { PreferencesUtil } from '../../services/storage/PreferencesUtil';
 import { SearchFilter, SearchInType, SearchStatus } from '../../models/SearchFilter';
+import { SearchSortOrder } from '../../models/SearchSort';
 import { ActiveSearchFiltersBar } from '../components/search/ActiveSearchFiltersBar';
+import { SearchPostCard } from '../components/search/SearchPostCard';
 import { SearchFilterPanel } from '../components/search/SearchFilterPanel';
 import { DEFAULT_AVAILABLE_TAGS, TagSelectionSheet } from '../components/TagControls';
 import { HdsNavDestination } from '@kit.UIDesignKit';
@@ -24,6 +25,7 @@ const SHEET_TAG_MORE: number = 2;
 const SHEET_DATE_RANGE: number = 3;
 const RECENT_SEARCH_KEY: string = 'search_recent_queries';
 const RECENT_SEARCH_LIMIT: number = 20;
+const SEARCH_SORT_ORDER_KEY: string = 'search_sort_order';
 
 /**
  * 搜索页面（游客态可用）
@@ -53,6 +55,7 @@ export struct SearchPage {
   @Local currentPage: number = 1;
   @Local isLoadingMore: boolean = false;
   @Local lastSearchQuery: string = '';
+  @Local sortOrder: SearchSortOrder = SearchSortOrder.RELEVANCE;
 
   // 高级筛选（已应用 + 草稿）
   @Local filter: SearchFilter = new SearchFilter();
@@ -74,7 +77,18 @@ export struct SearchPage {
   private listScroller: Scroller = new Scroller();
 
   aboutToAppear(): void {
-    this.query = this.initialQuery;
+    this.initializePage();
+  }
+
+  private async initializePage(): Promise<void> {
+    const initialSortOrder: SearchSortOrder | null = this.extractSortOrderFromQuery(this.initialQuery);
+    this.query = this.stripSortOrderFromQuery(this.initialQuery);
+    await this.loadSortOrder();
+    if (initialSortOrder !== null) {
+      this.sortOrder = initialSortOrder;
+      this.persistSortOrder(initialSortOrder);
+    }
+
     const initialInType: SearchInType | null = this.resolveInitialInType();
     if (initialInType !== null) {
       this.filter = new SearchFilter(null, null, null, null, [], null, null, null, initialInType);
@@ -138,7 +152,15 @@ export struct SearchPage {
   }
 
   private performSearch(): void {
-    const q: string = this.query.trim();
+    const rawQuery: string = this.query.trim();
+    const typedSortOrder: SearchSortOrder | null = this.extractSortOrderFromQuery(rawQuery);
+    if (typedSortOrder !== null) {
+      this.sortOrder = typedSortOrder;
+      this.persistSortOrder(typedSortOrder);
+    }
+
+    const q: string = this.stripSortOrderFromQuery(rawQuery);
+    this.query = q;
     if (q.length === 0) {
       this.resetSearchResults();
       return;
@@ -169,7 +191,7 @@ export struct SearchPage {
   private loadMore(): void {
     if (this.isLoading || this.isLoadingMore) return;
     if (this.lastSearchQuery.length === 0) return;
-    if (!this.hasMorePosts && !this.hasMoreUsers) return;
+    if (!this.hasMorePosts) return;
 
     this.isLoadingMore = true;
     const nextPage: number = this.currentPage + 1;
@@ -181,7 +203,7 @@ export struct SearchPage {
   private async fetchSearchPage(searchQuery: string, page: number, scrollToTop: boolean): Promise<void> {
     try {
       const apiClient: ApiClient = ApiClient.getInstance();
-      const resp: SearchResult = await apiClient.search(searchQuery, page);
+      const resp: SearchResult = await apiClient.search(searchQuery, page, 'topic');
 
       if (page <= 1) {
         this.topicResults = resp.topics;
@@ -427,9 +449,77 @@ export struct SearchPage {
   private buildSearchQuery(query: string, filter: SearchFilter): string {
     const base: string = query.trim();
     const filterQuery: string = filter.toQueryString().trim();
-    if (base.length === 0) return filterQuery;
-    if (filterQuery.length === 0) return base;
-    return `${base} ${filterQuery}`.trim();
+    const parts: string[] = [];
+    if (base.length > 0) {
+      parts.push(base);
+    }
+    if (filterQuery.length > 0) {
+      parts.push(filterQuery);
+    }
+    if (this.sortOrder.orderValue.length > 0) {
+      parts.push(`order:${this.sortOrder.orderValue}`);
+    }
+    return parts.join(' ').trim();
+  }
+
+  private async loadSortOrder(): Promise<void> {
+    try {
+      const raw: string = await PreferencesUtil.getString(SEARCH_SORT_ORDER_KEY, SearchSortOrder.RELEVANCE.key);
+      this.sortOrder = SearchSortOrder.fromKey(raw);
+    } catch (err) {
+      hilog.error(0x0000, TAG, 'Load sort order failed: %{public}s', JSON.stringify(err));
+      this.sortOrder = SearchSortOrder.RELEVANCE;
+    }
+  }
+
+  private persistSortOrder(order: SearchSortOrder): void {
+    PreferencesUtil.putString(SEARCH_SORT_ORDER_KEY, order.key).catch((err: Object) => {
+      hilog.error(0x0000, TAG, 'Persist sort order failed: %{public}s', JSON.stringify(err));
+    });
+  }
+
+  private stripSortOrderFromQuery(query: string): string {
+    return query.replace(/\s*order:(relevance|latest|likes|views|latest_topic)\s*/g, ' ').replace(/\s+/g, ' ').trim();
+  }
+
+  private extractSortOrderFromQuery(query: string): SearchSortOrder | null {
+    const match: RegExpMatchArray | null = query.match(/order:(relevance|latest|likes|views|latest_topic)/);
+    if (match === null || match.length < 2) {
+      return null;
+    }
+    return SearchSortOrder.fromOrderValue(match[1]);
+  }
+
+  private onSortOrderChange(order: SearchSortOrder): void {
+    if (this.sortOrder.key === order.key) {
+      return;
+    }
+    this.sortOrder = order;
+    this.persistSortOrder(order);
+    if (this.query.trim().length > 0) {
+      this.performSearch();
+    }
+  }
+
+  private getResultCountText(): string {
+    if (this.postResults.length <= 0) {
+      return '0 条结果';
+    }
+    return `${this.postResults.length}${this.hasMorePosts ? '+' : ''} 条结果`;
+  }
+
+  private getParentCategory(category: Category | null): Category | null {
+    if (category === null) {
+      return null;
+    }
+    const parentId: number | null = (category as Category).parentCategoryId;
+    if (parentId === null) {
+      return null;
+    }
+    if (this.categoryMap.has(parentId)) {
+      return this.categoryMap.get(parentId) as Category;
+    }
+    return null;
   }
 
   private async loadRecentSearches(): Promise<void> {
@@ -498,11 +588,6 @@ export struct SearchPage {
         Column() {
           this.TopBar()
 
-          Divider()
-            .color($r('app.color.divider_light'))
-            .strokeWidth(1)
-            .margin({ left: 16, right: 16 })
-
           if (this.filter.isNotEmpty) {
             ActiveSearchFiltersBar({
               filter: this.filter,
@@ -512,6 +597,10 @@ export struct SearchPage {
               onClearDateRange: () => this.clearFilterDateRange(),
               onClearAll: () => this.clearAllFilters()
             })
+          }
+
+          if (this.query.trim().length > 0 && (!this.isLoading || this.postResults.length > 0 || this.userResults.length > 0)) {
+            this.SearchSortRow()
           }
 
           if (this.isLoading) {
@@ -564,13 +653,13 @@ export struct SearchPage {
               .justifyContent(FlexAlign.Center)
               .alignItems(HorizontalAlign.Center)
             }
-          } else if (this.topicResults.length === 0 && this.postResults.length === 0 && this.userResults.length === 0) {
+          } else if (this.postResults.length === 0 && this.userResults.length === 0) {
             Column() {
               SymbolGlyph($r('sys.symbol.info_circle'))
                 .fontSize(26)
                 .fontColor([$r('app.color.on_surface_tertiary')])
                 .margin({ bottom: 10 })
-              Text('未找到相关结果')
+              Text($r('app.string.search_no_results'))
                 .fontSize(14)
                 .fontColor($r('app.color.on_surface_secondary'))
             }
@@ -580,36 +669,33 @@ export struct SearchPage {
             .alignItems(HorizontalAlign.Center)
           } else {
             List({ scroller: this.listScroller }) {
-              if (this.topicResults.length > 0) {
-                ListItem() {
-                  this.SectionHeader('话题')
-                }
-                ForEach(this.topicResults, (t: SearchTopic) => {
-                  ListItem() {
-                    this.TopicResultRow(t)
-                  }
-                }, (t: SearchTopic) => t.id.toString())
-              }
-
               if (this.postResults.length > 0) {
-                ListItem() {
-                  this.SectionHeader('帖子')
-                }
                 ForEach(this.postResults, (p: SearchPost) => {
                   ListItem() {
-                    this.PostResultRow(p)
+                    SearchPostCard({
+                      post: p,
+                      category: this.getCategoryById(p.topic !== null ? (p.topic as SearchTopic).categoryId : null),
+                      parentCategory: this.getParentCategory(this.getCategoryById(
+                        p.topic !== null ? (p.topic as SearchTopic).categoryId : null
+                      )),
+                      onTap: () => {
+                        RouterManager.pushTopicDetail(p.topicId, p.postNumber);
+                      }
+                    })
                   }
+                  .padding({ bottom: 12 })
                 }, (p: SearchPost) => p.id.toString())
               }
 
               if (this.userResults.length > 0) {
                 ListItem() {
-                  this.SectionHeader('用户')
+                  this.SectionHeader($r('app.string.search_users'))
                 }
                 ForEach(this.userResults, (u: SearchUser) => {
                   ListItem() {
                     this.UserResultRow(u)
                   }
+                  .padding({ bottom: 12 })
                 }, (u: SearchUser) => u.id.toString())
               }
 
@@ -633,7 +719,7 @@ export struct SearchPage {
             }
             .width('100%')
             .layoutWeight(1)
-            .padding({ left: 12, right: 12, top: 10 })
+            .padding({ left: 16, right: 16, top: 8, bottom: 12 })
             .backgroundColor($r('app.color.background'))
             .onReachEnd(() => {
               this.loadMore();
@@ -662,10 +748,9 @@ export struct SearchPage {
   @Builder
   TopBar() {
     Row() {
-      // 返回
       Row() {
         SymbolGlyph($r('sys.symbol.chevron_left'))
-          .fontSize(18)
+          .fontSize(22)
           .fontColor([$r('app.color.on_surface')])
       }
       .width(44)
@@ -676,61 +761,48 @@ export struct SearchPage {
         RouterManager.pop();
       })
 
-      // 搜索输入框（圆角胶囊）
-      Row() {
-        SymbolGlyph($r('sys.symbol.magnifyingglass'))
-          .fontSize(18)
-          .fontColor([$r('app.color.on_surface_tertiary')])
-          .margin({ right: 6 })
-
-        TextInput({ text: this.query, placeholder: $r('app.string.search_hint_advanced') })
-          .fontSize(15)
-          .fontColor($r('app.color.on_surface'))
-          .placeholderColor($r('app.color.on_surface_tertiary'))
-          .backgroundColor(Color.Transparent)
-          .layoutWeight(1)
-          .onChange((value: string) => {
-            if (value !== this.query) {
-              this.query = value;
-              if (this.query.trim().length === 0) {
-                this.errorMessage = '';
-                this.resetSearchResults();
-              }
+      TextInput({ text: this.query, placeholder: $r('app.string.search_hint_advanced') })
+        .fontSize(18)
+        .fontWeight(FontWeight.Medium)
+        .fontColor($r('app.color.on_surface'))
+        .placeholderColor($r('app.color.on_surface_secondary'))
+        .backgroundColor(Color.Transparent)
+        .height(SEARCH_FIELD_HEIGHT)
+        .layoutWeight(1)
+        .margin({ left: 8, right: 8 })
+        .onChange((value: string) => {
+          if (value !== this.query) {
+            this.query = value;
+            if (this.query.trim().length === 0) {
+              this.errorMessage = '';
+              this.resetSearchResults();
             }
-          })
-          .onSubmit(() => {
-            this.performSearch();
-          })
-
-        if (this.query.length > 0) {
-          Row() {
-            SymbolGlyph($r('sys.symbol.xmark_circle_fill'))
-              .fontSize(18)
-              .fontColor([$r('app.color.on_surface_tertiary')])
           }
-          .width(32)
-          .height(32)
-          .justifyContent(FlexAlign.Center)
-          .alignItems(VerticalAlign.Center)
-          .onClick(() => {
-            this.query = '';
-            this.errorMessage = '';
-            this.resetSearchResults();
-          })
-        }
-      }
-      .height(SEARCH_FIELD_HEIGHT)
-      .padding({ left: 14, right: 10 })
-      .backgroundColor($r('app.color.search_background'))
-      .borderRadius(SEARCH_FIELD_HEIGHT / 2)
-      .layoutWeight(1)
-      .margin({ left: 6, right: 6 })
-      .alignItems(VerticalAlign.Center)
+        })
+        .onSubmit(() => {
+          this.performSearch();
+        })
 
-      // 右侧：搜索按钮
+      if (this.query.length > 0) {
+        Row() {
+          SymbolGlyph($r('sys.symbol.xmark_circle_fill'))
+            .fontSize(18)
+            .fontColor([$r('app.color.on_surface_secondary')])
+        }
+        .width(44)
+        .height(44)
+        .justifyContent(FlexAlign.Center)
+        .alignItems(VerticalAlign.Center)
+        .onClick(() => {
+          this.query = '';
+          this.errorMessage = '';
+          this.resetSearchResults();
+        })
+      }
+
       Row() {
         SymbolGlyph($r('sys.symbol.magnifyingglass'))
-          .fontSize(18)
+          .fontSize(20)
           .fontColor([$r('app.color.on_surface_secondary')])
       }
       .width(44)
@@ -741,11 +813,10 @@ export struct SearchPage {
         this.performSearch();
       })
 
-      // 右侧：高级筛选（tune）
       Stack() {
         Row() {
           SymbolGlyph($r('sys.symbol.line_3_horizontal'))
-            .fontSize(18)
+            .fontSize(20)
             .fontColor([$r('app.color.on_surface_secondary')])
         }
         .width(44)
@@ -770,13 +841,85 @@ export struct SearchPage {
     }
     .width('100%')
     .height(TOP_BAR_HEIGHT)
-    .padding({ left: 8, right: 8, top: 6, bottom: 6 })
+    .padding({ left: 8, right: 8, top: 8, bottom: 6 })
     .backgroundColor($r('app.color.background'))
     .alignItems(VerticalAlign.Center)
   }
 
   @Builder
-  SectionHeader(title: string) {
+  SearchSortMenuBuilder() {
+    Menu() {
+      ForEach(SearchSortOrder.values(), (order: SearchSortOrder) => {
+        MenuItem() {
+          Row() {
+            if (this.sortOrder.key === order.key) {
+              SymbolGlyph($r('sys.symbol.checkmark'))
+                .fontSize(16)
+                .fontColor([$r('app.color.primary')])
+            } else {
+              Blank()
+                .width(16)
+                .height(16)
+            }
+
+            Text(order.label)
+              .fontSize(14)
+              .fontColor($r('app.color.on_surface'))
+              .layoutWeight(1)
+              .margin({ left: 8 })
+          }
+          .width('100%')
+          .padding({ left: 12, right: 12 })
+          .alignItems(VerticalAlign.Center)
+        }
+        .selected(false)
+        .selectIcon(false)
+        .height(40)
+        .onChange((selected: boolean) => {
+          if (selected) {
+            this.onSortOrderChange(order);
+          }
+        })
+      }, (order: SearchSortOrder) => order.key)
+    }
+    .width(180)
+    .backgroundColor($r('app.color.search_bar_background'))
+    .borderRadius(12)
+    .shadow({ radius: 10, color: '#22000000', offsetX: 0, offsetY: 6 })
+  }
+
+  @Builder
+  SearchSortRow() {
+    Row() {
+      Text($r('app.string.search_sort_label'))
+        .fontSize(14)
+        .fontColor($r('app.color.on_surface_secondary'))
+
+      Row() {
+        Text(this.sortOrder.label)
+          .fontSize(15)
+          .fontWeight(FontWeight.Bold)
+          .fontColor($r('app.color.on_surface'))
+        SymbolGlyph($r('sys.symbol.chevron_down'))
+          .fontSize(16)
+          .fontColor([$r('app.color.on_surface_secondary')])
+          .margin({ left: 3, top: 1 })
+      }
+      .margin({ left: 8 })
+      .bindMenu(this.SearchSortMenuBuilder())
+
+      Blank().layoutWeight(1)
+
+      Text(this.getResultCountText())
+        .fontSize(13)
+        .fontColor($r('app.color.on_surface_secondary'))
+    }
+    .width('100%')
+    .padding({ left: 16, right: 16, top: 6, bottom: 12 })
+  }
+
+  @Builder
+  SectionHeader(title: Resource | string) {
     Row() {
       Text(title)
         .fontSize(13)
@@ -788,106 +931,19 @@ export struct SearchPage {
   }
 
   @Builder
-  TopicResultRow(topic: SearchTopic) {
-    Column() {
-      Text(topic.title)
-        .fontSize(14)
-        .fontWeight(FontWeight.Medium)
-        .fontColor($r('app.color.on_surface'))
-        .maxLines(2)
-        .textOverflow({ overflow: TextOverflow.Ellipsis })
-
-      Row() {
-        if (this.getSearchTopicCategoryName(topic).length > 0) {
-          Text(this.getSearchTopicCategoryName(topic))
-            .fontSize(12)
-            .fontColor($r('app.color.on_surface_secondary'))
-            .margin({ right: 10 })
-        }
-
-        Text(`${Math.max(0, topic.postsCount - 1)} 回复 · ${topic.views} 浏览`)
-          .fontSize(12)
-          .fontColor($r('app.color.on_surface_tertiary'))
-
-        if (topic.closed) {
-          Text(' · 已关闭')
-            .fontSize(12)
-            .fontColor($r('app.color.on_surface_tertiary'))
-        }
-      }
-      .margin({ top: 6 })
-      .alignItems(VerticalAlign.Center)
-    }
-    .width('100%')
-    .padding({ left: 14, right: 14, top: 12, bottom: 12 })
-    .backgroundColor($r('app.color.surface'))
-    .borderRadius(14)
-    .margin({ bottom: 10 })
-    .onClick(() => {
-      RouterManager.pushTopicDetail(topic.id);
-    })
-  }
-
-  @Builder
-  PostResultRow(post: SearchPost) {
-    Row() {
-      SmartAvatar({
-        avatarUrl: post.getAvatarUrl(72),
-        avatarSize: 28,
-        avatarRadius: 14,
-        fallbackText: post.username,
-        bgColor: '#E8EAF0'
-      })
-
-      Column() {
-        if (this.getSearchPostTopicTitle(post).length > 0) {
-          Text(this.getSearchPostTopicTitle(post))
-            .fontSize(13)
-            .fontColor($r('app.color.on_surface'))
-            .maxLines(1)
-            .textOverflow({ overflow: TextOverflow.Ellipsis })
-        }
-
-        Text(this.stripHtml(post.blurb))
-          .fontSize(12)
-          .fontColor($r('app.color.on_surface_secondary'))
-          .maxLines(2)
-          .textOverflow({ overflow: TextOverflow.Ellipsis })
-          .margin({ top: 4 })
-
-        Text(`@${post.username} · ${this.getSearchPostTimeText(post)}`)
-          .fontSize(11)
-          .fontColor($r('app.color.on_surface_tertiary'))
-          .margin({ top: 6 })
-      }
-      .layoutWeight(1)
-      .margin({ left: 10 })
-    }
-    .width('100%')
-    .padding({ left: 14, right: 14, top: 12, bottom: 12 })
-    .backgroundColor($r('app.color.surface'))
-    .borderRadius(14)
-    .margin({ bottom: 10 })
-    .alignItems(VerticalAlign.Center)
-    .onClick(() => {
-      RouterManager.pushTopicDetail(post.topicId, post.postNumber);
-    })
-  }
-
-  @Builder
   UserResultRow(user: SearchUser) {
     Row() {
       SmartAvatar({
-        avatarUrl: user.getAvatarUrl(72),
-        avatarSize: 32,
-        avatarRadius: 16,
+        avatarUrl: user.getAvatarUrl(80),
+        avatarSize: 40,
+        avatarRadius: 20,
         fallbackText: user.username,
         bgColor: '#E8EAF0'
       })
 
       Column() {
         Text(user.username)
-          .fontSize(14)
+          .fontSize(15)
           .fontWeight(FontWeight.Medium)
           .fontColor($r('app.color.on_surface'))
           .maxLines(1)
@@ -895,7 +951,7 @@ export struct SearchPage {
 
         if (user.name !== null && (user.name as string).length > 0) {
           Text(user.name as string)
-            .fontSize(12)
+            .fontSize(13)
             .fontColor($r('app.color.on_surface_secondary'))
             .maxLines(1)
             .textOverflow({ overflow: TextOverflow.Ellipsis })
@@ -906,39 +962,14 @@ export struct SearchPage {
       .margin({ left: 10 })
     }
     .width('100%')
-    .padding({ left: 14, right: 14, top: 12, bottom: 12 })
-    .backgroundColor($r('app.color.surface'))
-    .borderRadius(14)
-    .margin({ bottom: 10 })
+    .padding({ left: 14, right: 14, top: 14, bottom: 14 })
+    .backgroundColor($r('app.color.card_background'))
+    .borderRadius(18)
+    .shadow({ radius: 10, color: '#0A000000', offsetX: 0, offsetY: 4 })
     .alignItems(VerticalAlign.Center)
     .onClick(() => {
       RouterManager.pushUserProfile(user.username);
     })
-  }
-
-  private stripHtml(input: string): string {
-    if (input.length === 0) return input;
-    try {
-      return input.replace(/<[^>]+>/g, '').trim();
-    } catch (_) {
-      return input;
-    }
-  }
-
-  private getSearchTopicCategoryName(topic: SearchTopic): string {
-    const cat: Category | null = this.getCategoryById(topic.categoryId);
-    return cat !== null ? (cat as Category).name : '';
-  }
-
-  private getSearchPostTopicTitle(post: SearchPost): string {
-    if (post.topic !== null) {
-      return (post.topic as SearchTopic).title;
-    }
-    return '';
-  }
-
-  private getSearchPostTimeText(post: SearchPost): string {
-    return TimeUtils.formatRelativeTime(post.createdAt);
   }
 
   @Builder

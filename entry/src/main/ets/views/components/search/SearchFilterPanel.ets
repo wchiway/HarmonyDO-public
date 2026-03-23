@@ -1,5 +1,6 @@
 import { Category } from '../../../models/Category';
 import { SearchFilter, SearchStatus } from '../../../models/SearchFilter';
+import { BadgeIconUtils } from '../TopicBadges';
 
 const HANDLE_WIDTH: number = 32;
 const HANDLE_HEIGHT: number = 4;
@@ -290,26 +291,23 @@ export struct SearchFilterPanel {
   @Builder
   CategorySection() {
     Column() {
-      // 顶部区域："全部" + 孤立父类
+      // 顶部区域："全部"
       Flex({ wrap: FlexWrap.Wrap, justifyContent: FlexAlign.Start }) {
         this.CategoryChipAll(this.filter.categoryId === null)
-        ForEach(this.getIsolatedParents(), (c: Category) => {
-          this.CategoryChipItem(c, false, null)
-        }, (c: Category) => c.id.toString())
       }
 
-      if (this.getGroupParents().length > 0) {
+      if (this.getTopCategories().length > 0) {
         Blank().height(16)
       }
 
-      // 分组区域
-      ForEach(this.getGroupParents(), (parent: Category) => {
+      // 按顶级分类原始顺序逐组输出：父分类在前，子分类在下
+      ForEach(this.getTopCategories(), (parent: Category) => {
         Column() {
           this.CategoryChipItem(parent, false, null)
 
-          Blank().height(8)
-
           if (this.hasSubcategories(parent.id)) {
+            Blank().height(8)
+
             Row() {
               // 左侧引导线
               Column() {}
@@ -331,7 +329,8 @@ export struct SearchFilterPanel {
           }
         }
         .width('100%')
-        .margin({ bottom: 16 })
+        .alignItems(HorizontalAlign.Start)
+        .margin({ bottom: this.getCategoryBlockBottomMargin(parent.id) })
       }, (p: Category) => p.id.toString())
     }
     .width('100%')
@@ -350,32 +349,6 @@ export struct SearchFilterPanel {
 
   private hasDateRange(): boolean {
     return this.filter.afterDate !== null || this.filter.beforeDate !== null;
-  }
-
-  private getIsolatedParents(): Category[] {
-    const topCategories: Category[] = this.getTopCategories();
-    const subMap: Map<number, Category[]> = this.buildSubcategoryMap();
-    const isolated: Category[] = [];
-    for (let i = 0; i < topCategories.length; i++) {
-      const parent: Category = topCategories[i];
-      if (!subMap.has(parent.id) || (subMap.get(parent.id) as Category[]).length === 0) {
-        isolated.push(parent);
-      }
-    }
-    return isolated;
-  }
-
-  private getGroupParents(): Category[] {
-    const topCategories: Category[] = this.getTopCategories();
-    const subMap: Map<number, Category[]> = this.buildSubcategoryMap();
-    const groups: Category[] = [];
-    for (let i = 0; i < topCategories.length; i++) {
-      const parent: Category = topCategories[i];
-      if (subMap.has(parent.id) && (subMap.get(parent.id) as Category[]).length > 0) {
-        groups.push(parent);
-      }
-    }
-    return groups;
   }
 
   private hasSubcategories(parentId: number): boolean {
@@ -408,19 +381,11 @@ export struct SearchFilterPanel {
     return list;
   }
 
-  private buildSubcategoryMap(): Map<number, Category[]> {
-    const map: Map<number, Category[]> = new Map();
-    for (let i = 0; i < this.categories.length; i++) {
-      const c: Category = this.categories[i];
-      if (c.parentCategoryId !== null && c.parentCategoryId !== 0) {
-        const pid: number = c.parentCategoryId as number;
-        if (!map.has(pid)) {
-          map.set(pid, []);
-        }
-        (map.get(pid) as Category[]).push(c);
-      }
+  private getCategoryBlockBottomMargin(parentId: number): number {
+    if (this.hasSubcategories(parentId)) {
+      return 16;
     }
-    return map;
+    return 8;
   }
 
   @Builder
@@ -450,8 +415,12 @@ export struct SearchFilterPanel {
   @Builder
   CategoryChipItem(category: Category, isSub: boolean, parentCategory: Category | null) {
     Row() {
-      // icon: lock / dot
-      if (category.readRestricted) {
+      if (this.getCategorySymbol(category, parentCategory) !== null) {
+        SymbolGlyph(this.getCategorySymbol(category, parentCategory) as Resource)
+          .fontSize(15)
+          .fontColor([this.getCategoryColorHex(category)])
+          .margin({ right: 6 })
+      } else if (category.readRestricted) {
         SymbolGlyph($r('sys.symbol.lock'))
           .fontSize(12)
           .fontColor([this.getCategoryColorHex(category)])
@@ -528,6 +497,10 @@ export struct SearchFilterPanel {
 
   private getCategoryColorHex(category: Category): string {
     return this.normalizeHex(category.color);
+  }
+
+  private getCategorySymbol(category: Category, parentCategory: Category | null): Resource | null {
+    return BadgeIconUtils.getCategorySymbol(category, parentCategory);
   }
 
   private getCategoryBgColor(category: Category): string {

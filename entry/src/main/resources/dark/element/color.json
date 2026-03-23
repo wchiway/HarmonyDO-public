@@ -106,7 +106,7 @@
     },
     {
       "name": "fab_glass_tint",
-      "value": "#402A2A2A"
+      "value": "#2E2A2A2A"
     },
     {
       "name": "tab_glass_stroke",
@@ -114,7 +114,7 @@
     },
     {
       "name": "fab_glass_stroke",
-      "value": "#1AFFFFFF"
+      "value": "#12FFFFFF"
     },
     {
       "name": "tab_glass_shadow",
