@@ -28,8 +28,18 @@ interface ProfileOptionItem {
   iconSymbol: Resource;
   iconBgColor: string;
   iconColor: string;
-  title: string;
+  title: Resource;
+  subtitle: Resource | null;
   showDivider: boolean;
+  onClick: () => void;
+}
+
+interface ProfileQuickActionItem {
+  iconSymbol: Resource;
+  iconBgColor: string;
+  iconColor: string;
+  title: Resource;
+  subtitle: Resource;
   onClick: () => void;
 }
 
@@ -664,10 +674,16 @@ export struct ProfilePage {
               }
 
               if (this.isLoggedIn && this.currentUser !== null) {
+                this.LoggedInQuickAccessCard()
+                Blank().height(20)
+                this.SectionHeader($r('app.string.profile_section_growth'), $r('app.string.profile_section_growth_subtitle'))
+                Blank().height(12)
                 this.LoggedInOptionsCard()
                 Blank().height(20)
               }
 
+              this.SectionHeader($r('app.string.profile_section_services'), $r('app.string.profile_section_services_subtitle'))
+              Blank().height(12)
               this.AboutCard()
               Blank().height(32)
               this.AuthButton()
@@ -766,39 +782,46 @@ export struct ProfilePage {
           .justifyContent(FlexAlign.Center)
           .alignItems(VerticalAlign.Center)
 
-          this.TopIconButton($r('sys.symbol.gearshape'), () => {
-            this.openProfileEdit();
-          })
-
-          Stack({ alignContent: Alignment.TopEnd }) {
-            Row() {
-              SymbolGlyph($r('sys.symbol.bell'))
-                .fontSize(19)
-                .fontColor([$r('app.color.on_surface')])
-            }
-            .width(36)
-            .height(36)
-            .justifyContent(FlexAlign.Center)
-            .alignItems(VerticalAlign.Center)
-            .onClick(() => {
-              this.openNotifications();
+          Row() {
+            this.PillActionButton($r('sys.symbol.gearshape'), () => {
+              this.openProfileEdit();
             })
 
-            if (this.getUnreadCount() > 0) {
+            Stack({ alignContent: Alignment.TopEnd }) {
               Row() {
-                Text(this.getUnreadCount() > 99 ? '99+' : this.getUnreadCount().toString())
-                  .fontSize(9)
-                  .fontWeight(FontWeight.Bold)
-                  .fontColor(Color.White)
+                SymbolGlyph($r('sys.symbol.bell'))
+                  .fontSize(18)
+                  .fontColor([$r('app.color.on_surface')])
               }
-              .padding({ left: 5, right: 5, top: 1, bottom: 1 })
-              .backgroundColor($r('app.color.error'))
-              .borderRadius(8)
-              .margin({ top: 2, right: 0 })
+              .width(34)
+              .height(34)
+              .justifyContent(FlexAlign.Center)
+              .alignItems(VerticalAlign.Center)
+              .onClick(() => {
+                this.openNotifications();
+              })
+
+              if (this.getUnreadCount() > 0) {
+                Row() {
+                  Text(this.getUnreadCount() > 99 ? '99+' : this.getUnreadCount().toString())
+                    .fontSize(9)
+                    .fontWeight(FontWeight.Bold)
+                    .fontColor(Color.White)
+                }
+                .padding({ left: 5, right: 5, top: 1, bottom: 1 })
+                .backgroundColor($r('app.color.error'))
+                .borderRadius(8)
+                .margin({ top: 1, right: 0 })
+              }
             }
+            .width(34)
+            .height(34)
           }
-          .width(36)
-          .height(36)
+          .padding({ left: 4, right: 4, top: 4, bottom: 4 })
+          .backgroundColor($r('app.color.card_background'))
+          .borderRadius(22)
+          .shadow({ radius: 10, color: $r('app.color.shadow_light'), offsetX: 0, offsetY: 4 })
+          .margin({ left: 8 })
         }
         .alignItems(VerticalAlign.Center)
       }
@@ -830,100 +853,124 @@ export struct ProfilePage {
 
   @Builder
   private HeaderSection() {
-    Row() {
-      AvatarWithFlair({
-        avatarUrl: this.getAvatarUrl(144),
-        avatarSize: HEADER_AVATAR_SIZE,
-        avatarRadius: HEADER_AVATAR_SIZE / 2,
-        fallbackText: this.isLoggedIn ? this.getDisplayName() : '',
-        bgColor: '#E8EAF0',
-        flairUrl: this.currentUser !== null ? (this.currentUser as User).flairUrl : null,
-        flairName: this.currentUser !== null ? (this.currentUser as User).flairName : null,
-        flairBgColor: this.currentUser !== null ? (this.currentUser as User).flairBgColor : null,
-        flairColor: this.currentUser !== null ? (this.currentUser as User).flairColor : null,
-        flairSize: 24
-      })
+    Column() {
+      Text($r('app.string.profile_header_caption'))
+        .fontSize(12)
+        .fontWeight(FontWeight.Medium)
+        .fontColor($r('app.color.on_surface_secondary'))
 
-      Column() {
-        Text(this.getDisplayName())
-          .fontSize(22)
-          .fontWeight(FontWeight.Bold)
-          .fontColor($r('app.color.on_surface'))
-          .maxLines(1)
-          .textOverflow({ overflow: TextOverflow.Ellipsis })
+      Row() {
+        Stack({ alignContent: Alignment.Center }) {
+          Circle()
+            .width(HEADER_AVATAR_SIZE + 12)
+            .height(HEADER_AVATAR_SIZE + 12)
+            .fill(this.getHeaderHaloColor())
 
-        if (this.isLoggedIn && this.getUsername().length > 0) {
-          Text(`@${this.getUsername()}`)
-            .fontSize(14)
-            .fontColor($r('app.color.on_surface_secondary'))
-            .margin({ top: 4 })
-        } else {
-          Text('登录后体验更多功能')
-            .fontSize(14)
-            .fontColor($r('app.color.on_surface_secondary'))
-            .margin({ top: 4 })
+          AvatarWithFlair({
+            avatarUrl: this.getAvatarUrl(144),
+            avatarSize: HEADER_AVATAR_SIZE,
+            avatarRadius: HEADER_AVATAR_SIZE / 2,
+            fallbackText: this.isLoggedIn ? this.getDisplayName() : '',
+            bgColor: '#E8EAF0',
+            flairUrl: this.currentUser !== null ? (this.currentUser as User).flairUrl : null,
+            flairName: this.currentUser !== null ? (this.currentUser as User).flairName : null,
+            flairBgColor: this.currentUser !== null ? (this.currentUser as User).flairBgColor : null,
+            flairColor: this.currentUser !== null ? (this.currentUser as User).flairColor : null,
+            flairSize: 24
+          })
         }
+        .width(HEADER_AVATAR_SIZE + 12)
+        .height(HEADER_AVATAR_SIZE + 12)
+
+        Column() {
+          Text(this.getDisplayName())
+            .fontSize(22)
+            .fontWeight(FontWeight.Bold)
+            .fontColor($r('app.color.on_surface'))
+            .maxLines(1)
+            .textOverflow({ overflow: TextOverflow.Ellipsis })
+
+          if (this.isLoggedIn && this.getUsername().length > 0) {
+            Text(`@${this.getUsername()}`)
+              .fontSize(14)
+              .fontColor($r('app.color.on_surface_secondary'))
+              .margin({ top: 4 })
+          } else {
+            Text('登录后体验更多功能')
+              .fontSize(14)
+              .fontColor($r('app.color.on_surface_secondary'))
+              .margin({ top: 4 })
+          }
+
+          if (this.isLoggedIn && this.currentUser !== null) {
+            Flex({ wrap: FlexWrap.Wrap }) {
+              Text(this.getTrustLevelText())
+                .fontSize(11)
+                .fontWeight(FontWeight.Medium)
+                .fontColor(this.getTrustLevelColor())
+                .padding({ left: 8, right: 8, top: 3, bottom: 3 })
+                .backgroundColor(ThemeManager.hexWithAlpha(this.getTrustLevelColor(), 0.14))
+                .borderRadius(10)
+                .margin({ right: 8, bottom: 4 })
+
+              if (this.getStatusEmojiText().length > 0 || this.getStatusDescription().length > 0) {
+                Row() {
+                  if (this.getStatusEmojiText().length > 0) {
+                    UserStatusEmoji({
+                      rawEmoji: this.getStatusEmojiText(),
+                      iconSize: 14,
+                      marginLeft: 0
+                    })
+                  }
+                  if (this.getStatusDescription().length > 0) {
+                    Text(this.getStatusDescription())
+                      .fontSize(11)
+                      .fontWeight(FontWeight.Medium)
+                      .fontColor($r('app.color.on_surface_secondary'))
+                      .maxLines(1)
+                      .textOverflow({ overflow: TextOverflow.Ellipsis })
+                      .margin({ left: this.getStatusEmojiText().length > 0 ? 4 : 0 })
+                  }
+                }
+                .padding({ left: 8, right: 8, top: 3, bottom: 3 })
+                .backgroundColor($r('app.color.card_background'))
+                .borderRadius(10)
+                .margin({ bottom: 4 })
+              }
+            }
+            .margin({ top: 10 })
+          }
+        }
+        .layoutWeight(1)
+        .margin({ left: 18 })
+        .alignItems(HorizontalAlign.Start)
 
         if (this.isLoggedIn && this.currentUser !== null) {
-          Flex({ wrap: FlexWrap.Wrap }) {
-            Text(this.getTrustLevelText())
-              .fontSize(11)
-              .fontWeight(FontWeight.Medium)
-              .fontColor(this.getTrustLevelColor())
-              .padding({ left: 8, right: 8, top: 3, bottom: 3 })
-              .backgroundColor(ThemeManager.hexWithAlpha(this.getTrustLevelColor(), 0.14))
-              .borderRadius(10)
-              .margin({ right: 8, bottom: 4 })
-
-            if (this.getStatusEmojiText().length > 0 || this.getStatusDescription().length > 0) {
-              Row() {
-                if (this.getStatusEmojiText().length > 0) {
-                  UserStatusEmoji({
-                    rawEmoji: this.getStatusEmojiText(),
-                    iconSize: 14,
-                    marginLeft: 0
-                  })
-                }
-                if (this.getStatusDescription().length > 0) {
-                  Text(this.getStatusDescription())
-                    .fontSize(11)
-                    .fontWeight(FontWeight.Medium)
-                    .fontColor($r('app.color.on_surface_secondary'))
-                    .maxLines(1)
-                    .textOverflow({ overflow: TextOverflow.Ellipsis })
-                    .margin({ left: this.getStatusEmojiText().length > 0 ? 4 : 0 })
-                }
-              }
-              .padding({ left: 8, right: 8, top: 3, bottom: 3 })
-              .backgroundColor($r('app.color.card_background'))
-              .borderRadius(10)
-              .margin({ bottom: 4 })
-            }
+          Row() {
+            SymbolGlyph($r('sys.symbol.chevron_right'))
+              .fontSize(16)
+              .fontColor([$r('app.color.on_surface_secondary')])
           }
-          .margin({ top: 8 })
+          .width(36)
+          .height(36)
+          .borderRadius(18)
+          .backgroundColor($r('app.color.card_background'))
+          .justifyContent(FlexAlign.Center)
+          .alignItems(VerticalAlign.Center)
+          .margin({ left: 12 })
+          .shadow({ radius: 6, color: $r('app.color.shadow_light'), offsetX: 0, offsetY: 2 })
         }
       }
-      .layoutWeight(1)
-      .margin({ left: 20 })
-      .alignItems(HorizontalAlign.Start)
-
-      if (this.isLoggedIn && this.currentUser !== null) {
-        Row() {
-          SymbolGlyph($r('sys.symbol.chevron_right'))
-            .fontSize(16)
-            .fontColor([$r('app.color.on_surface_tertiary')])
-        }
-        .width(32)
-        .height(32)
-        .borderRadius(16)
-        .backgroundColor($r('app.color.card_background'))
-        .justifyContent(FlexAlign.Center)
-        .alignItems(VerticalAlign.Center)
-        .margin({ left: 12 })
-      }
+      .width('100%')
+      .margin({ top: 14 })
+      .alignItems(VerticalAlign.Center)
     }
     .width('100%')
-    .alignItems(VerticalAlign.Center)
+    .padding({ left: 18, right: 18, top: 18, bottom: 18 })
+    .backgroundColor(this.getHeaderPanelBackground())
+    .borderRadius(24)
+    .border({ width: 1, color: this.getHeaderPanelBorderColor() })
+    .shadow({ radius: 14, color: $r('app.color.shadow_light'), offsetX: 0, offsetY: 6 })
     .onClick(() => {
       if (this.isLoggedIn && this.currentUser !== null) {
         this.openMyProfile();
@@ -935,122 +982,289 @@ export struct ProfilePage {
   private StatsCard() {
     Column() {
       Row() {
-        this.StatItem(this.formatCount((this.summary as UserSummary).daysVisited), '访问天数')
+        Column() {
+          Text($r('app.string.profile_stats_title'))
+            .fontSize(16)
+            .fontWeight(FontWeight.Bold)
+            .fontColor($r('app.color.on_surface'))
+
+          Text($r('app.string.profile_stats_subtitle'))
+            .fontSize(12)
+            .fontColor($r('app.color.on_surface_secondary'))
+            .margin({ top: 4 })
+        }
+        .layoutWeight(1)
+        .alignItems(HorizontalAlign.Start)
+
+        Text($r('app.string.profile_stats_chip'))
+          .fontSize(11)
+          .fontWeight(FontWeight.Medium)
+          .fontColor(this.getHeaderAccentColor())
+          .padding({ left: 10, right: 10, top: 5, bottom: 5 })
+          .backgroundColor(this.getStatsChipBackground())
+          .borderRadius(12)
+      }
+      .width('100%')
+      .alignItems(VerticalAlign.Center)
+
+      Blank().height(18)
+
+      Row() {
+        this.StatItem(this.formatCount((this.summary as UserSummary).daysVisited), $r('app.string.days_visited'))
         this.VerticalDivider()
-        this.StatItem(this.formatCount((this.summary as UserSummary).postsReadCount), '阅读帖子')
+        this.StatItem(this.formatCount((this.summary as UserSummary).postsReadCount), $r('app.string.posts_read'))
         this.VerticalDivider()
-        this.StatItem(this.formatCount((this.summary as UserSummary).likesReceived), '获得点赞')
+        this.StatItem(this.formatCount((this.summary as UserSummary).likesReceived), $r('app.string.likes_received'))
         this.VerticalDivider()
-        this.StatItem(this.formatCount((this.summary as UserSummary).postCount), '发表回复')
+        this.StatItem(this.formatCount((this.summary as UserSummary).postCount), $r('app.string.posts_created'))
       }
       .width('100%')
       .alignItems(VerticalAlign.Center)
     }
     .width('100%')
-    .padding({ left: 16, right: 16, top: 20, bottom: 20 })
-    .backgroundColor($r('app.color.card_background'))
-    .borderRadius(16)
+    .padding({ left: 18, right: 18, top: 18, bottom: 18 })
+    .backgroundColor(this.getStatsCardBackground())
+    .borderRadius(22)
+    .border({ width: 1, color: this.getStatsCardBorderColor() })
+    .shadow({ radius: 14, color: $r('app.color.shadow_light'), offsetX: 0, offsetY: 6 })
   }
 
   @Builder
   private SummaryLoadingCard() {
-    Row() {
-      LoadingProgress().width(20).height(20)
-      Text('正在刷新社区表现...')
-        .fontSize(13)
-        .fontColor($r('app.color.on_surface_secondary'))
-        .margin({ left: 8 })
+    Column() {
+      Row() {
+        Column() {
+          Text($r('app.string.profile_stats_title'))
+            .fontSize(16)
+            .fontWeight(FontWeight.Bold)
+            .fontColor($r('app.color.on_surface'))
+
+          Text($r('app.string.profile_stats_subtitle'))
+            .fontSize(12)
+            .fontColor($r('app.color.on_surface_secondary'))
+            .margin({ top: 4 })
+        }
+        .layoutWeight(1)
+        .alignItems(HorizontalAlign.Start)
+
+        Text($r('app.string.profile_stats_chip'))
+          .fontSize(11)
+          .fontWeight(FontWeight.Medium)
+          .fontColor(this.getHeaderAccentColor())
+          .padding({ left: 10, right: 10, top: 5, bottom: 5 })
+          .backgroundColor(this.getStatsChipBackground())
+          .borderRadius(12)
+      }
+      .width('100%')
+      .alignItems(VerticalAlign.Center)
+
+      Row() {
+        LoadingProgress().width(18).height(18)
+        Text($r('app.string.profile_stats_loading'))
+          .fontSize(13)
+          .fontColor($r('app.color.on_surface_secondary'))
+          .margin({ left: 8 })
+      }
+      .margin({ top: 18 })
+      .alignItems(VerticalAlign.Center)
     }
     .width('100%')
-    .padding({ top: 18, bottom: 18 })
-    .justifyContent(FlexAlign.Center)
-    .backgroundColor($r('app.color.card_background'))
-    .borderRadius(16)
+    .padding({ left: 18, right: 18, top: 18, bottom: 18 })
+    .backgroundColor(this.getStatsCardBackground())
+    .borderRadius(22)
+    .border({ width: 1, color: this.getStatsCardBorderColor() })
+    .shadow({ radius: 14, color: $r('app.color.shadow_light'), offsetX: 0, offsetY: 6 })
   }
 
   @Builder
   private SummaryPlaceholderCard() {
-    Row() {
-      this.StatItem('--', '访问天数')
-      this.VerticalDivider()
-      this.StatItem('--', '阅读帖子')
-      this.VerticalDivider()
-      this.StatItem('--', '获得点赞')
-      this.VerticalDivider()
-      this.StatItem('--', '发表回复')
+    Column() {
+      Row() {
+        Column() {
+          Text($r('app.string.profile_stats_title'))
+            .fontSize(16)
+            .fontWeight(FontWeight.Bold)
+            .fontColor($r('app.color.on_surface'))
+
+          Text($r('app.string.profile_stats_subtitle'))
+            .fontSize(12)
+            .fontColor($r('app.color.on_surface_secondary'))
+            .margin({ top: 4 })
+        }
+        .layoutWeight(1)
+        .alignItems(HorizontalAlign.Start)
+
+        Text($r('app.string.profile_stats_chip'))
+          .fontSize(11)
+          .fontWeight(FontWeight.Medium)
+          .fontColor(this.getHeaderAccentColor())
+          .padding({ left: 10, right: 10, top: 5, bottom: 5 })
+          .backgroundColor(this.getStatsChipBackground())
+          .borderRadius(12)
+      }
+      .width('100%')
+      .alignItems(VerticalAlign.Center)
+
+      Blank().height(18)
+
+      Row() {
+        this.StatItem('--', $r('app.string.days_visited'))
+        this.VerticalDivider()
+        this.StatItem('--', $r('app.string.posts_read'))
+        this.VerticalDivider()
+        this.StatItem('--', $r('app.string.likes_received'))
+        this.VerticalDivider()
+        this.StatItem('--', $r('app.string.posts_created'))
+      }
+      .width('100%')
+      .alignItems(VerticalAlign.Center)
     }
     .width('100%')
-    .padding({ left: 16, right: 16, top: 20, bottom: 20 })
-    .backgroundColor($r('app.color.card_background'))
-    .borderRadius(16)
-    .opacity(0.68)
+    .padding({ left: 18, right: 18, top: 18, bottom: 18 })
+    .backgroundColor(this.getStatsCardBackground())
+    .borderRadius(22)
+    .border({ width: 1, color: this.getStatsCardBorderColor() })
+    .shadow({ radius: 14, color: $r('app.color.shadow_light'), offsetX: 0, offsetY: 6 })
+    .opacity(0.86)
   }
 
   @Builder
   private VerticalDivider() {
     Blank()
       .width(1)
-      .height(20)
-      .backgroundColor($r('app.color.divider'))
+      .height(28)
+      .backgroundColor(this.getStatsCardBorderColor())
   }
 
   @Builder
-  private StatItem(value: string, label: string) {
+  private PillActionButton(symbol: Resource, onClick: () => void = () => {}) {
+    Row() {
+      SymbolGlyph(symbol)
+        .fontSize(18)
+        .fontColor([$r('app.color.on_surface')])
+    }
+    .width(34)
+    .height(34)
+    .justifyContent(FlexAlign.Center)
+    .alignItems(VerticalAlign.Center)
+    .onClick(() => {
+      onClick();
+    })
+  }
+
+  @Builder
+  private StatItem(value: string, label: Resource) {
     Column() {
       Text(value)
-        .fontSize(18)
+        .fontSize(20)
         .fontWeight(FontWeight.Bold)
-        .fontColor($r('app.color.primary'))
+        .fontColor(this.getHeaderAccentColor())
       Text(label)
         .fontSize(11)
         .fontColor($r('app.color.on_surface_secondary'))
-        .margin({ top: 4 })
+        .margin({ top: 6 })
+        .textAlign(TextAlign.Center)
     }
     .layoutWeight(1)
     .alignItems(HorizontalAlign.Center)
   }
 
   @Builder
+  private SectionHeader(title: Resource, subtitle: Resource) {
+    Column() {
+      Text(title)
+        .fontSize(16)
+        .fontWeight(FontWeight.Bold)
+        .fontColor($r('app.color.on_surface'))
+
+      Text(subtitle)
+        .fontSize(12)
+        .fontColor($r('app.color.on_surface_secondary'))
+        .margin({ top: 4 })
+    }
+    .width('100%')
+    .alignItems(HorizontalAlign.Start)
+  }
+
+  @Builder
+  private LoggedInQuickAccessCard() {
+    Column() {
+      this.SectionHeader($r('app.string.profile_section_workspace'), $r('app.string.profile_section_workspace_subtitle'))
+      Blank().height(16)
+
+      Row() {
+        this.QuickAccessItem({
+          iconSymbol: $r('sys.symbol.message'),
+          iconBgColor: '#E0F7FA',
+          iconColor: '#00ACC1',
+          title: $r('app.string.profile_my_topics'),
+          subtitle: $r('app.string.profile_workspace_topics_hint'),
+          onClick: () => { this.openMyTopics(); }
+        })
+        Blank().width(12)
+        this.QuickAccessItem({
+          iconSymbol: $r('sys.symbol.bookmark'),
+          iconBgColor: '#FFF3E0',
+          iconColor: '#FB8C00',
+          title: $r('app.string.profile_my_bookmarks'),
+          subtitle: $r('app.string.profile_workspace_bookmarks_hint'),
+          onClick: () => { this.openBookmarks(); }
+        })
+      }
+      .width('100%')
+      .alignItems(VerticalAlign.Top)
+
+      Blank().height(12)
+
+      Row() {
+        this.QuickAccessItem({
+          iconSymbol: $r('sys.symbol.notepad'),
+          iconBgColor: '#E0F2F1',
+          iconColor: '#00897B',
+          title: $r('app.string.profile_my_drafts'),
+          subtitle: $r('app.string.profile_workspace_drafts_hint'),
+          onClick: () => { this.openDrafts(); }
+        })
+        Blank().width(12)
+        this.QuickAccessItem({
+          iconSymbol: $r('sys.symbol.medal'),
+          iconBgColor: '#FFF8E1',
+          iconColor: '#FFB300',
+          title: $r('app.string.profile_my_badges'),
+          subtitle: $r('app.string.profile_workspace_badges_hint'),
+          onClick: () => { this.openBadges(); }
+        })
+      }
+      .width('100%')
+      .alignItems(VerticalAlign.Top)
+    }
+    .width('100%')
+    .padding({ left: 16, right: 16, top: 16, bottom: 16 })
+    .backgroundColor($r('app.color.card_background'))
+    .borderRadius(24)
+    .border({ width: 1, color: $r('app.color.divider_light') })
+    .shadow({ radius: 14, color: $r('app.color.shadow_light'), offsetX: 0, offsetY: 6 })
+  }
+
+  @Builder
   private LoggedInOptionsCard() {
     Column() {
       this.OptionItem({
-        iconSymbol: $r('sys.symbol.bookmark'),
-        iconBgColor: '#FFF3E0',
-        iconColor: '#FB8C00',
-        title: '我的书签',
+        iconSymbol: $r('sys.symbol.clock'),
+        iconBgColor: '#F3E5F5',
+        iconColor: '#8E24AA',
+        title: $r('app.string.profile_browsing_history'),
+        subtitle: $r('app.string.profile_growth_history_hint'),
         showDivider: true,
-        onClick: () => { this.openBookmarks(); }
-      })
-      this.OptionItem({
-        iconSymbol: $r('sys.symbol.notepad'),
-        iconBgColor: '#E0F2F1',
-        iconColor: '#00897B',
-        title: '我的草稿',
-        showDivider: true,
-        onClick: () => { this.openDrafts(); }
-      })
-      this.OptionItem({
-        iconSymbol: $r('sys.symbol.message'),
-        iconBgColor: '#E0F7FA',
-        iconColor: '#00ACC1',
-        title: '我的话题',
-        showDivider: true,
-        onClick: () => { this.openMyTopics(); }
-      })
-      this.OptionItem({
-        iconSymbol: $r('sys.symbol.medal'),
-        iconBgColor: '#FFF8E1',
-        iconColor: '#FFB300',
-        title: '我的徽章',
-        showDivider: true,
-        onClick: () => { this.openBadges(); }
+        onClick: () => { this.showPendingToast('浏览历史'); }
       })
       this.OptionItem({
         iconSymbol: $r('sys.symbol.security_shield'),
         iconBgColor: '#E8F5E9',
         iconColor: '#43A047',
-        title: '信任要求',
-        showDivider: true,
+        title: $r('app.string.profile_trust_requirements'),
+        subtitle: $r('app.string.profile_growth_trust_hint'),
+        showDivider: this.canShowInviteLinks(),
         onClick: () => { this.showPendingToast('信任要求'); }
       })
       if (this.canShowInviteLinks()) {
@@ -1058,41 +1272,92 @@ export struct ProfilePage {
           iconSymbol: $r('sys.symbol.link'),
           iconBgColor: '#E0F7FA',
           iconColor: '#00ACC1',
-          title: '邀请链接',
-          showDivider: true,
+          title: $r('app.string.profile_invite_links'),
+          subtitle: $r('app.string.profile_growth_invite_hint'),
+          showDivider: false,
           onClick: () => { this.openInviteLinks(); }
         })
       }
-      this.OptionItem({
-        iconSymbol: $r('sys.symbol.clock'),
-        iconBgColor: '#F3E5F5',
-        iconColor: '#8E24AA',
-        title: '浏览历史',
-        showDivider: true,
-        onClick: () => { this.showPendingToast('浏览历史'); }
-      })
-      this.OptionItem({
-        iconSymbol: $r('sys.symbol.archivebox'),
-        iconBgColor: '#FBE9E7',
-        iconColor: '#F4511E',
-        title: '元宇宙',
-        showDivider: false,
-        onClick: () => { this.showPendingToast('元宇宙'); }
-      })
     }
     .width('100%')
     .backgroundColor($r('app.color.card_background'))
-    .borderRadius(16)
+    .borderRadius(20)
+    .border({ width: 1, color: $r('app.color.divider_light') })
+    .shadow({ radius: 12, color: $r('app.color.shadow_light'), offsetX: 0, offsetY: 6 })
+  }
+
+  @Builder
+  private QuickAccessItem(params: ProfileQuickActionItem) {
+    Column() {
+      Row() {
+        Row() {
+          SymbolGlyph(params.iconSymbol)
+            .fontSize(22)
+            .fontColor([params.iconColor])
+        }
+        .width(50)
+        .height(50)
+        .borderRadius(16)
+        .backgroundColor(this.getOptionIconBackground(params.iconBgColor, params.iconColor))
+        .justifyContent(FlexAlign.Center)
+        .alignItems(VerticalAlign.Center)
+
+        Blank().layoutWeight(1)
+
+        SymbolGlyph($r('sys.symbol.chevron_right'))
+          .fontSize(14)
+          .fontColor([$r('app.color.on_surface_tertiary')])
+      }
+      .width('100%')
+      .alignItems(VerticalAlign.Center)
+
+      Text(params.title)
+        .fontSize(15)
+        .fontWeight(FontWeight.Bold)
+        .fontColor($r('app.color.on_surface'))
+        .textAlign(TextAlign.Start)
+        .maxLines(1)
+        .textOverflow({ overflow: TextOverflow.Ellipsis })
+        .margin({ top: 14 })
+
+      Text(params.subtitle)
+        .fontSize(12)
+        .fontColor($r('app.color.on_surface_secondary'))
+        .maxLines(1)
+        .textOverflow({ overflow: TextOverflow.Ellipsis })
+        .margin({ top: 6 })
+    }
+    .layoutWeight(1)
+    .height(122)
+    .padding({ left: 14, right: 14, top: 14, bottom: 14 })
+    .alignItems(HorizontalAlign.Start)
+    .justifyContent(FlexAlign.Start)
+    .backgroundColor(this.getQuickActionSurface(params.iconColor))
+    .borderRadius(18)
+    .border({ width: 1, color: this.getQuickActionBorder(params.iconColor) })
+    .onClick(() => {
+      params.onClick();
+    })
   }
 
   @Builder
   private AboutCard() {
     Column() {
       this.OptionItem({
+        iconSymbol: $r('sys.symbol.archivebox'),
+        iconBgColor: '#FBE9E7',
+        iconColor: '#F4511E',
+        title: $r('app.string.profile_metaverse'),
+        subtitle: $r('app.string.profile_service_metaverse_hint'),
+        showDivider: true,
+        onClick: () => { this.showPendingToast('元宇宙'); }
+      })
+      this.OptionItem({
         iconSymbol: $r('sys.symbol.robot'),
         iconBgColor: '#E0F7FA',
         iconColor: '#00ACC1',
-        title: 'AI 模型服务',
+        title: $r('app.string.profile_ai_model_service'),
+        subtitle: $r('app.string.profile_service_ai_hint'),
         showDivider: true,
         onClick: () => { this.showPendingToast('AI 模型服务'); }
       })
@@ -1100,7 +1365,8 @@ export struct ProfilePage {
         iconSymbol: $r('sys.symbol.paintbrush'),
         iconBgColor: '#E0F2F1',
         iconColor: '#00897B',
-        title: '外观设置',
+        title: $r('app.string.profile_appearance'),
+        subtitle: $r('app.string.profile_service_appearance_hint'),
         showDivider: true,
         onClick: () => { this.showPendingToast('外观设置'); }
       })
@@ -1108,7 +1374,8 @@ export struct ProfilePage {
         iconSymbol: $r('sys.symbol.wifi'),
         iconBgColor: '#E8F5E9',
         iconColor: '#43A047',
-        title: '网络设置',
+        title: $r('app.string.profile_network_settings'),
+        subtitle: $r('app.string.profile_service_network_hint'),
         showDivider: true,
         onClick: () => { this.showPendingToast('网络设置'); }
       })
@@ -1116,7 +1383,8 @@ export struct ProfilePage {
         iconSymbol: $r('sys.symbol.gearshape'),
         iconBgColor: '#EDE7F6',
         iconColor: '#5E35B1',
-        title: '功能设置',
+        title: $r('app.string.profile_feature_settings'),
+        subtitle: $r('app.string.profile_service_feature_hint'),
         showDivider: true,
         onClick: () => { this.showPendingToast('功能设置'); }
       })
@@ -1124,7 +1392,8 @@ export struct ProfilePage {
         iconSymbol: $r('sys.symbol.archivebox'),
         iconBgColor: '#EFEBE9',
         iconColor: '#6D4C41',
-        title: '数据管理',
+        title: $r('app.string.profile_data_management'),
+        subtitle: $r('app.string.profile_service_data_hint'),
         showDivider: true,
         onClick: () => { this.showPendingToast('数据管理'); }
       })
@@ -1132,14 +1401,17 @@ export struct ProfilePage {
         iconSymbol: $r('sys.symbol.info_circle'),
         iconBgColor: '#E8EAF6',
         iconColor: '#3949AB',
-        title: '关于 FluxDO',
+        title: $r('app.string.profile_about_fluxdo'),
+        subtitle: $r('app.string.profile_service_about_hint'),
         showDivider: false,
         onClick: () => { this.showPendingToast('关于 FluxDO'); }
       })
     }
     .width('100%')
     .backgroundColor($r('app.color.card_background'))
-    .borderRadius(16)
+    .borderRadius(20)
+    .border({ width: 1, color: $r('app.color.divider_light') })
+    .shadow({ radius: 12, color: $r('app.color.shadow_light'), offsetX: 0, offsetY: 6 })
   }
 
   @Builder
@@ -1225,6 +1497,51 @@ export struct ProfilePage {
       : ThemeManager.hexWithAlpha('#D32F2F', 0.08);
   }
 
+  private getHeaderAccentColor(): string {
+    if (this.currentUser === null) {
+      return '#0088CC';
+    }
+    return this.getTrustLevelColor();
+  }
+
+  private getHeaderPanelBackground(): string {
+    const accent: string = this.getHeaderAccentColor();
+    return ThemeManager.hexWithAlpha(accent, WindowManager.isDarkMode() ? 0.22 : 0.07);
+  }
+
+  private getHeaderPanelBorderColor(): string {
+    const accent: string = this.getHeaderAccentColor();
+    return ThemeManager.hexWithAlpha(accent, WindowManager.isDarkMode() ? 0.26 : 0.12);
+  }
+
+  private getHeaderHaloColor(): string {
+    const accent: string = this.getHeaderAccentColor();
+    return ThemeManager.hexWithAlpha(accent, WindowManager.isDarkMode() ? 0.18 : 0.12);
+  }
+
+  private getStatsCardBackground(): string {
+    const accent: string = this.getHeaderAccentColor();
+    return ThemeManager.hexWithAlpha(accent, WindowManager.isDarkMode() ? 0.16 : 0.05);
+  }
+
+  private getStatsCardBorderColor(): string {
+    const accent: string = this.getHeaderAccentColor();
+    return ThemeManager.hexWithAlpha(accent, WindowManager.isDarkMode() ? 0.24 : 0.10);
+  }
+
+  private getStatsChipBackground(): string {
+    const accent: string = this.getHeaderAccentColor();
+    return ThemeManager.hexWithAlpha(accent, WindowManager.isDarkMode() ? 0.22 : 0.10);
+  }
+
+  private getQuickActionSurface(iconColor: string): string {
+    return ThemeManager.hexWithAlpha(iconColor, WindowManager.isDarkMode() ? 0.18 : 0.06);
+  }
+
+  private getQuickActionBorder(iconColor: string): string {
+    return ThemeManager.hexWithAlpha(iconColor, WindowManager.isDarkMode() ? 0.26 : 0.10);
+  }
+
   private getOptionIconBackground(iconBgColor: string, iconColor: string): string {
     if (!WindowManager.isDarkMode()) {
       return iconBgColor;
@@ -1241,26 +1558,40 @@ export struct ProfilePage {
             .fontSize(20)
             .fontColor([params.iconColor])
         }
-        .width(36)
-        .height(36)
-        .borderRadius(10)
+        .width(38)
+        .height(38)
+        .borderRadius(12)
         .backgroundColor(this.getOptionIconBackground(params.iconBgColor, params.iconColor))
         .justifyContent(FlexAlign.Center)
         .alignItems(HorizontalAlign.Center)
 
-        Text(params.title)
-          .fontSize(15)
-          .fontWeight(FontWeight.Medium)
-          .fontColor($r('app.color.on_surface'))
-          .margin({ left: 16 })
+        Column() {
+          Text(params.title)
+            .fontSize(15)
+            .fontWeight(FontWeight.Medium)
+            .fontColor($r('app.color.on_surface'))
+            .maxLines(1)
+            .textOverflow({ overflow: TextOverflow.Ellipsis })
+
+          if (params.subtitle !== null) {
+            Text(params.subtitle)
+              .fontSize(12)
+              .fontColor($r('app.color.on_surface_secondary'))
+              .maxLines(1)
+              .textOverflow({ overflow: TextOverflow.Ellipsis })
+              .margin({ top: 4 })
+          }
+        }
+          .margin({ left: 14 })
           .layoutWeight(1)
+          .alignItems(HorizontalAlign.Start)
 
         SymbolGlyph($r('sys.symbol.chevron_right'))
-          .fontSize(20)
+          .fontSize(16)
           .fontColor([$r('app.color.on_surface_tertiary')])
       }
       .width('100%')
-      .padding({ left: 16, right: 16, top: 16, bottom: 16 })
+      .padding({ left: 16, right: 16, top: 15, bottom: 15 })
       .alignItems(VerticalAlign.Center)
       .onClick(() => {
         params.onClick();
@@ -1270,7 +1601,7 @@ export struct ProfilePage {
         Divider()
           .color($r('app.color.divider_light'))
           .strokeWidth(0.5)
-          .margin({ left: 60 })
+          .margin({ left: 66 })
       }
     }
     .width('100%')

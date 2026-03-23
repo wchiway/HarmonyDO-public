@@ -337,6 +337,162 @@
       "value": "无法获取题主"
     },
     {
+      "name": "profile_header_caption",
+      "value": "个人工作台"
+    },
+    {
+      "name": "profile_stats_title",
+      "value": "社区表现"
+    },
+    {
+      "name": "profile_stats_subtitle",
+      "value": "最近社区表现一览"
+    },
+    {
+      "name": "profile_stats_chip",
+      "value": "持续成长中"
+    },
+    {
+      "name": "profile_stats_loading",
+      "value": "正在刷新社区表现..."
+    },
+    {
+      "name": "profile_section_workspace",
+      "value": "常用功能"
+    },
+    {
+      "name": "profile_section_workspace_subtitle",
+      "value": "从这里快速回到你的内容"
+    },
+    {
+      "name": "profile_section_growth",
+      "value": "浏览与成长"
+    },
+    {
+      "name": "profile_section_growth_subtitle",
+      "value": "回看你的足迹与社区权限"
+    },
+    {
+      "name": "profile_section_services",
+      "value": "扩展服务"
+    },
+    {
+      "name": "profile_section_services_subtitle",
+      "value": "管理模型、主题与应用偏好"
+    },
+    {
+      "name": "profile_my_topics",
+      "value": "我的话题"
+    },
+    {
+      "name": "profile_my_bookmarks",
+      "value": "我的书签"
+    },
+    {
+      "name": "profile_my_drafts",
+      "value": "我的草稿"
+    },
+    {
+      "name": "profile_my_badges",
+      "value": "我的徽章"
+    },
+    {
+      "name": "profile_browsing_history",
+      "value": "浏览历史"
+    },
+    {
+      "name": "profile_trust_requirements",
+      "value": "信任要求"
+    },
+    {
+      "name": "profile_invite_links",
+      "value": "邀请链接"
+    },
+    {
+      "name": "profile_metaverse",
+      "value": "元宇宙"
+    },
+    {
+      "name": "profile_ai_model_service",
+      "value": "AI 模型服务"
+    },
+    {
+      "name": "profile_appearance",
+      "value": "外观设置"
+    },
+    {
+      "name": "profile_network_settings",
+      "value": "网络设置"
+    },
+    {
+      "name": "profile_feature_settings",
+      "value": "功能设置"
+    },
+    {
+      "name": "profile_data_management",
+      "value": "数据管理"
+    },
+    {
+      "name": "profile_about_fluxdo",
+      "value": "关于 FluxDO"
+    },
+    {
+      "name": "profile_workspace_topics_hint",
+      "value": "继续追踪讨论"
+    },
+    {
+      "name": "profile_workspace_bookmarks_hint",
+      "value": "收藏与提醒"
+    },
+    {
+      "name": "profile_workspace_drafts_hint",
+      "value": "未完成内容"
+    },
+    {
+      "name": "profile_workspace_badges_hint",
+      "value": "成长记录"
+    },
+    {
+      "name": "profile_growth_history_hint",
+      "value": "最近查看过的话题"
+    },
+    {
+      "name": "profile_growth_trust_hint",
+      "value": "解锁更多社区权限"
+    },
+    {
+      "name": "profile_growth_invite_hint",
+      "value": "邀请朋友加入社区"
+    },
+    {
+      "name": "profile_service_metaverse_hint",
+      "value": "探索站内扩展内容"
+    },
+    {
+      "name": "profile_service_ai_hint",
+      "value": "管理模型与会话能力"
+    },
+    {
+      "name": "profile_service_appearance_hint",
+      "value": "主题、字号与显示偏好"
+    },
+    {
+      "name": "profile_service_network_hint",
+      "value": "连接策略与调试开关"
+    },
+    {
+      "name": "profile_service_feature_hint",
+      "value": "常用行为与交互偏好"
+    },
+    {
+      "name": "profile_service_data_hint",
+      "value": "缓存、导出与清理"
+    },
+    {
+      "name": "profile_service_about_hint",
+      "value": "版本信息与项目说明"
+    },
+    {
       "name": "permission_write_imagevideo_reason",
       "value": "用于将生成的分享图片保存到系统相册"
     }
