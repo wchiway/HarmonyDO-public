@@ -605,6 +605,10 @@ export struct ProfilePage {
     RouterManager.pushMyBadges();
   }
 
+  private openBrowsingHistory(): void {
+    RouterManager.pushBrowsingHistory();
+  }
+
   private openInviteLinks(): void {
     const username: string = this.getUsername();
     if (username.length > 0) {
@@ -1256,7 +1260,7 @@ export struct ProfilePage {
         title: $r('app.string.profile_browsing_history'),
         subtitle: $r('app.string.profile_growth_history_hint'),
         showDivider: true,
-        onClick: () => { this.showPendingToast('浏览历史'); }
+        onClick: () => { this.openBrowsingHistory(); }
       })
       this.OptionItem({
         iconSymbol: $r('sys.symbol.security_shield'),

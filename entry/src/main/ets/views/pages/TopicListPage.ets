@@ -17,6 +17,7 @@ import { WindowManager } from '../../common/utils/WindowManager';
 import { TopicTrackingService } from '../../services/messagebus/TopicTrackingService';
 import { TopicListPreferences } from '../../services/storage/TopicListPreferences';
 import { HoldingHandService, HoldingHandState } from '../../services/device/HoldingHandService';
+import { CreateTopicComposerSheet } from '../components/CreateTopicComposerSheet';
 import {
   FLOATING_TAB_BAR_HEIGHT_VP,
   FLOATING_TAB_BAR_MARGIN_BOTTOM_VP,
@@ -64,9 +65,13 @@ export struct TopicListPage {
   @Local headerOffset: number = 0; // 0 展开，COLLAPSIBLE_HEIGHT 折叠
   @Local listAtTop: boolean = true;
   @Local fabRefreshMode: boolean = false;
+  @Local isHomeFabExpanded: boolean = false;
+  @Local isCreateTopicSheetVisible: boolean = false;
   private listScroller: Scroller = new Scroller();
   private headerSnapTimerId: number = -1;
   private lastReportedBarVisibility: number = 1;
+  private createdTopicId: number = 0;
+  private createTopicSheetRequestKey: string = '';
 
   // “查看新话题” banner（对齐 Flutter：topic_ids 增量插入；Mock 下自动模拟）
   @Local incomingTopicCount: number = 0;
@@ -129,6 +134,7 @@ export struct TopicListPage {
     this.clearIncomingLoadTimer();
     this.clearIncomingPollTimer();
     this.clearIncomingHighlightTimer();
+    this.isHomeFabExpanded = false;
     this.highlightedTopicIds = [];
     this.detachTrackingListener();
     this.detachHoldingHandListener();
@@ -1014,6 +1020,125 @@ export struct TopicListPage {
     this.loadTopics(true);
   }
 
+  private closeHomeFabMenu(): void {
+    this.isHomeFabExpanded = false;
+  }
+
+  private openDraftsPage(): void {
+    this.closeHomeFabMenu();
+    RouterManager.pushDrafts();
+  }
+
+  private openCreateTopicSheet(): void {
+    this.closeHomeFabMenu();
+    this.createdTopicId = 0;
+    this.createTopicSheetRequestKey = `create_topic_${Date.now()}`;
+    this.isCreateTopicSheetVisible = true;
+  }
+
+  private handleCreateTopicSheetDismiss(submitted: boolean): void {
+    this.isCreateTopicSheetVisible = false;
+    this.closeHomeFabMenu();
+    if (!submitted) {
+      this.createdTopicId = 0;
+      return;
+    }
+
+    const nextTopicId: number = this.createdTopicId;
+    this.createdTopicId = 0;
+    if (nextTopicId > 0) {
+      RouterManager.pushTopicDetail(nextTopicId);
+    }
+    this.loadTopics(true);
+  }
+
+  @Builder
+  private HomeFabBackdrop() {
+    if (!this.fabRefreshMode && this.isHomeFabExpanded) {
+      Column() {
+      }
+      .width('100%')
+      .height('100%')
+      .backgroundColor('#01000000')
+      .onClick(() => {
+        this.closeHomeFabMenu();
+      })
+    }
+  }
+
+  @Builder
+  private HomeFabActionMenu(visibility: number) {
+    if (!this.fabRefreshMode && this.isHomeFabExpanded) {
+      Column() {
+        Row() {
+          SymbolGlyph($r('sys.symbol.notepad'))
+            .fontSize(16)
+            .fontColor([$r('app.color.primary')])
+            .margin({ right: 8 })
+
+          Text('我的草稿')
+            .fontSize(14)
+            .fontWeight(FontWeight.Medium)
+            .fontColor($r('app.color.on_surface'))
+        }
+        .padding({ left: 14, right: 14, top: 11, bottom: 11 })
+        .backgroundColor($r('app.color.surface'))
+        .borderRadius(16)
+        .border({ width: 0.5, color: $r('app.color.fab_glass_stroke') })
+        .shadow({ radius: 18, color: $r('app.color.tab_glass_shadow'), offsetX: 0, offsetY: 10 })
+        .onClick(() => {
+          this.openDraftsPage();
+        })
+
+        Blank().height(12)
+
+        Row() {
+          SymbolGlyph($r('sys.symbol.plus'))
+            .fontSize(16)
+            .fontColor([$r('app.color.primary')])
+            .margin({ right: 8 })
+
+          Text('创建话题')
+            .fontSize(14)
+            .fontWeight(FontWeight.Medium)
+            .fontColor($r('app.color.on_surface'))
+        }
+        .padding({ left: 14, right: 14, top: 11, bottom: 11 })
+        .backgroundColor($r('app.color.surface'))
+        .borderRadius(16)
+        .border({ width: 0.5, color: $r('app.color.fab_glass_stroke') })
+        .shadow({ radius: 18, color: $r('app.color.tab_glass_shadow'), offsetX: 0, offsetY: 10 })
+        .onClick(() => {
+          this.openCreateTopicSheet();
+        })
+      }
+      .constraintSize({ minWidth: 132 })
+      .alignItems(this.isHomeFabLeftAligned() ? HorizontalAlign.Start : HorizontalAlign.End)
+      .position({ x: this.getHomeFabPositionX(), y: '100%' })
+      .translate({
+        x: this.isHomeFabLeftAligned() ? 0 : -172,
+        y: this.getHomeFabTranslateY(visibility) - 112
+      })
+      .animation({ duration: 220, curve: Curve.EaseOut })
+    }
+  }
+
+  @Builder
+  private CreateTopicSheetBuilder() {
+    CreateTopicComposerSheet({
+      requestKey: this.createTopicSheetRequestKey,
+      initialCategoryId: this.getCurrentQueryCategoryId() !== null ? this.getCurrentQueryCategoryId() as number : 0,
+      initialTags: this.selectedTags,
+      openedFromDrafts: false,
+      onSubmitted: (topicId: number) => {
+        this.createdTopicId = topicId;
+      },
+      onDismiss: (submitted: boolean) => {
+        this.handleCreateTopicSheetDismiss(submitted);
+      }
+    })
+  }
+
   @Builder
   HomeFab(visibility: number) {
     Button() {
@@ -1045,11 +1170,11 @@ export struct TopicListPage {
     .animation({ duration: 220, curve: Curve.EaseOut })
     .onClick(() => {
       if (this.fabRefreshMode) {
+        this.closeHomeFabMenu();
         this.onRefreshFabClick();
         return;
       }
-      // TODO: 打开“发帖/创建话题”页面（待接入登录态与创建页）
-      hilog.info(0x0000, TAG, 'Create topic clicked (UI only)');
+      this.isHomeFabExpanded = !this.isHomeFabExpanded;
     })
   }
 
@@ -2202,12 +2327,26 @@ export struct TopicListPage {
       .width('100%')
       .height('100%')
 
+      this.HomeFabBackdrop()
+
       // 登录态：右下浮动按钮（创建/刷新切换）
       if (!this.isLoading && this.errorMessage.length === 0 && this.isLoggedIn) {
+        this.HomeFabActionMenu(this.computeBarVisibility())
         this.HomeFab(this.computeBarVisibility())
       }
 
       this.TopicPreviewOverlay()
+
+      Column() {
+      }
+      .width(0)
+      .height(0)
+      .bindSheet($$this.isCreateTopicSheetVisible, this.CreateTopicSheetBuilder, {
+        height: SheetSize.LARGE,
+        dragBar: false,
+        showClose: false,
+        backgroundColor: $r('app.color.surface')
+      })
     }
     .width('100%')
     .height('100%')

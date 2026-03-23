@@ -66,6 +66,9 @@ export class ApiConstants {
   /** 标记通知已读 */
   static readonly NOTIFICATIONS_MARK_READ: string = '/notifications/mark-read';
 
+  /** 浏览历史 */
+  static readonly READ_HISTORY: string = '/read.json';
+
   /** 分类下话题 */
   static categoryTopics(slug: string, id: number): string {
     return `/c/${slug}/${id}/l/latest.json`;

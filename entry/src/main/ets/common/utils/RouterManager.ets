@@ -14,6 +14,7 @@ export class RouteConstants {
   static readonly PAGE_DRAFTS: string = 'Drafts';
   static readonly PAGE_MY_TOPICS: string = 'MyTopics';
   static readonly PAGE_MY_BADGES: string = 'MyBadges';
+  static readonly PAGE_BROWSING_HISTORY: string = 'BrowsingHistory';
   static readonly PAGE_USER_PROFILE: string = 'UserProfile';
   static readonly PAGE_FOLLOW_LIST: string = 'FollowList';
   static readonly PAGE_BADGE_DETAIL: string = 'BadgeDetail';
@@ -242,6 +243,10 @@ export class RouterManager {
 
   static pushMyBadges(): void {
     RouterManager.pushPath(RouteConstants.PAGE_MY_BADGES);
+  }
+
+  static pushBrowsingHistory(): void {
+    RouterManager.pushPath(RouteConstants.PAGE_BROWSING_HISTORY);
   }
 
   /**

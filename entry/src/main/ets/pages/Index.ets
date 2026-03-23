@@ -15,6 +15,7 @@ import { BookmarksPage } from '../views/pages/BookmarksPage';
 import { DraftsPage } from '../views/pages/DraftsPage';
 import { MyTopicsPage } from '../views/pages/MyTopicsPage';
 import { MyBadgesPage } from '../views/pages/MyBadgesPage';
+import { BrowsingHistoryPage } from '../views/pages/BrowsingHistoryPage';
 import { CfRefreshHost } from '../views/components/CfRefreshHost';
 import { Topic } from '../models/Topic';
 import { Category } from '../models/Category';
@@ -279,6 +280,8 @@ struct Index {
       MyTopicsPage()
     } else if (name === RouteConstants.PAGE_MY_BADGES) {
       MyBadgesPage()
+    } else if (name === RouteConstants.PAGE_BROWSING_HISTORY) {
+      BrowsingHistoryPage()
     } else if (name === RouteConstants.PAGE_BADGE_DETAIL) {
       BadgeDetailPage({
         badgeId: this.parseBadgeDetailParam(param).badgeId,

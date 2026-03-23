@@ -628,6 +628,14 @@ export struct DraftsPage {
   private TopicDraftSheetBuilder() {
     if (this.activeTopicDraft !== null) {
       CreateTopicComposerSheet({
+        requestKey: (this.activeTopicDraft as Draft).draftKey,
+        initialCategoryId: (this.activeTopicDraft as Draft).data.categoryId !== null
+          ? ((this.activeTopicDraft as Draft).data.categoryId as number)
+          : 0,
+        initialTags: (this.activeTopicDraft as Draft).data.tags !== null
+          ? ((this.activeTopicDraft as Draft).data.tags as string[])
+          : [],
+        openedFromDrafts: true,
         onSubmitted: (topicId: number) => {
           this.createdTopicId = topicId;
         },

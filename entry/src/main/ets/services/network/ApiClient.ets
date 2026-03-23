@@ -1363,6 +1363,21 @@ export class ApiClient {
     return UserSummary.fromJson(json);
   }
 
+  async getBrowsingHistory(page: number = 0): Promise<TopicListResponse> {
+    if (AppConstants.USE_MOCK_DATA) {
+      return ApiClient.mockGetTopicList(null, page);
+    }
+    let params: Record<string, Object> | null = null;
+    if (page > 0) {
+      const query: Record<string, Object> = {};
+      query['page'] = page.toString();
+      params = query;
+    }
+    const raw: string = await this.http.get(ApiConstants.READ_HISTORY, params);
+    const json: Record<string, Object> = JSON.parse(raw) as Record<string, Object>;
+    return TopicListResponse.fromJson(json);
+  }
+
   async getUserBookmarks(username: string, page: number = 0): Promise<TopicListResponse> {
     if (AppConstants.USE_MOCK_DATA) {
       return ApiClient.mockGetTopicList(null, page);
