@@ -86,6 +86,11 @@ export class ApiConstants {
   /** 用户回应（discourse-reactions 插件） */
   static readonly USER_REACTIONS: string = '/discourse-reactions/posts/reactions.json';
 
+  /** 切换帖子回应（discourse-reactions 插件） */
+  static togglePostReaction(postId: number, reactionId: string): string {
+    return `/discourse-reactions/posts/${postId}/custom-reactions/${encodeURIComponent(reactionId)}/toggle.json`;
+  }
+
   /** 获取帖子回复列表 */
   static postReplies(postId: number): string {
     return `/posts/${postId}/replies`;
@@ -123,6 +128,11 @@ export class ApiConstants {
 
   /** 点赞 */
   static readonly POST_ACTION: string = '/post_actions.json';
+
+  /** 单个帖子动作（用于取消点赞等） */
+  static postAction(postId: number, postActionTypeId: number): string {
+    return `/post_actions/${postId}.json?post_action_type_id=${postActionTypeId}`;
+  }
 
   /** 书签 */
   static readonly BOOKMARKS: string = '/bookmarks.json';

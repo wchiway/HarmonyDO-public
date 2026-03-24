@@ -8,6 +8,8 @@
  *
  * 对应 Flutter: SmartAvatar(imageUrl, radius, fallbackText, backgroundColor)
  */
+import { UrlUtils } from '../../common/utils/UrlUtils';
+import { PreloadedDataService } from '../../services/messagebus/PreloadedDataService';
 import { AnimatedGifImage } from './AnimatedGifImage';
 
 @ComponentV2
@@ -19,6 +21,7 @@ export struct SmartAvatar {
   @Param bgColor: string = '';
   @Param fallbackFontColor: string | Resource = $r('app.color.primary');
   @Param useNeutralPlaceholderResource: boolean = true;
+  @Local private displayUrl: string = '';
   @Local private failedUrl: string = '';
 
   private getRadius(): number {
@@ -43,27 +46,63 @@ export struct SmartAvatar {
     return this.useNeutralPlaceholderResource && this.isNeutralPlaceholderBg();
   }
 
+  aboutToAppear(): void {
+    this.refreshDisplayUrl(true);
+    this.ensureImageHostConfigLoaded();
+  }
+
+  @Monitor('avatarUrl')
+  onAvatarUrlChange(): void {
+    this.refreshDisplayUrl(true);
+    this.ensureImageHostConfigLoaded();
+  }
+
+  private refreshDisplayUrl(resetFailedState: boolean = false): void {
+    const nextUrl: string = UrlUtils.resolveUrl(this.avatarUrl);
+    if (resetFailedState && nextUrl !== this.displayUrl) {
+      this.failedUrl = '';
+    }
+    this.displayUrl = nextUrl;
+  }
+
+  private ensureImageHostConfigLoaded(): void {
+    const raw: string = this.avatarUrl !== undefined && this.avatarUrl !== null ? this.avatarUrl.trim() : '';
+    if (raw.length === 0) {
+      return;
+    }
+    PreloadedDataService.getInstance().ensureConfigLoaded(true)
+      .then(() => {
+        const nextUrl: string = UrlUtils.resolveUrl(this.avatarUrl);
+        if (nextUrl !== this.displayUrl) {
+          this.failedUrl = '';
+          this.displayUrl = nextUrl;
+        }
+      })
+      .catch(() => {
+      });
+  }
+
   build() {
-    if (this.avatarUrl.length > 0 && this.avatarUrl !== this.failedUrl) {
-      if (this.isGifUrl(this.avatarUrl)) {
+    if (this.displayUrl.length > 0 && this.displayUrl !== this.failedUrl) {
+      if (this.isGifUrl(this.displayUrl)) {
         AnimatedGifImage({
-          url: this.avatarUrl,
+          url: this.displayUrl,
           imageSize: this.avatarSize,
           radius: this.getRadius(),
           onDecodeFailed: () => {
             // GIF 解码失败时仍保留静态兜底，但避免无限重试
-            this.failedUrl = this.avatarUrl;
+            this.failedUrl = this.displayUrl;
           }
         })
       } else {
-        Image(this.avatarUrl)
+        Image(this.displayUrl)
           .width(this.avatarSize)
           .height(this.avatarSize)
           .borderRadius(this.getRadius())
           .objectFit(ImageFit.Cover)
           .interpolation(ImageInterpolation.Medium)
           .onError(() => {
-            this.failedUrl = this.avatarUrl;
+            this.failedUrl = this.displayUrl;
           })
       }
     } else if (this.fallbackText.length > 0) {

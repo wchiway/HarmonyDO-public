@@ -109,7 +109,8 @@ export class HoldingHandService {
   }
 
   private handleRawStatus(rawStatus: number): void {
-    const nextStatus: HoldingHandState = this.normalizeStatus(rawStatus);
+    const normalizedStatus: HoldingHandState = this.normalizeStatus(rawStatus);
+    const nextStatus: HoldingHandState = this.resolveCommittedStatus(normalizedStatus);
     if (nextStatus === this.status && this.commitTimerId < 0) {
       return;
     }
@@ -123,6 +124,27 @@ export class HoldingHandService {
       this.status = this.pendingStatus;
       this.notifyListeners();
     }, HOLDING_HAND_COMMIT_DELAY_MS);
+  }
+
+  private resolveCommittedStatus(nextStatus: HoldingHandState): HoldingHandState {
+    if (nextStatus === HoldingHandState.LEFT_HAND_HELD || nextStatus === HoldingHandState.RIGHT_HAND_HELD) {
+      return nextStatus;
+    }
+
+    const lastDirectionalStatus: HoldingHandState = this.getLastDirectionalStatus();
+    if (lastDirectionalStatus === HoldingHandState.LEFT_HAND_HELD || lastDirectionalStatus === HoldingHandState.RIGHT_HAND_HELD) {
+      return lastDirectionalStatus;
+    }
+
+    return nextStatus;
+  }
+
+  private getLastDirectionalStatus(): HoldingHandState {
+    if (this.pendingStatus === HoldingHandState.LEFT_HAND_HELD || this.pendingStatus === HoldingHandState.RIGHT_HAND_HELD) {
+      return this.pendingStatus;
+    }
+
+    return this.status;
   }
 
   private normalizeStatus(rawStatus: number): HoldingHandState {

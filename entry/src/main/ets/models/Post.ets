@@ -155,6 +155,124 @@ export class MentionedUser {
   }
 }
 
+export class PostReaction {
+  id: string = '';
+  type: string = '';
+  count: number = 0;
+
+  static fromJson(json: Record<string, Object>): PostReaction {
+    const out: PostReaction = new PostReaction();
+    const idVal = json['id'];
+    out.id = idVal !== undefined && idVal !== null ? idVal.toString().trim() : '';
+    const typeVal = json['type'];
+    out.type = typeVal !== undefined && typeVal !== null ? typeVal.toString().trim() : 'emoji';
+    const countVal = json['count'];
+    out.count = countVal !== undefined && countVal !== null ? Number(countVal.toString()) : 0;
+    if (isNaN(out.count) || out.count < 0) {
+      out.count = 0;
+    }
+    return out;
+  }
+
+  static cloneValue(source: PostReaction | null | undefined): PostReaction | null {
+    if (source === null || source === undefined) {
+      return null;
+    }
+    const out: PostReaction = new PostReaction();
+    out.id = source.id;
+    out.type = source.type;
+    out.count = source.count;
+    return out;
+  }
+
+  static cloneList(source: PostReaction[] | null | undefined): PostReaction[] {
+    if (source === null || source === undefined || source.length === 0) {
+      return [];
+    }
+    const out: PostReaction[] = [];
+    for (let i = 0; i < source.length; i++) {
+      const cloned: PostReaction | null = PostReaction.cloneValue(source[i]);
+      if (cloned !== null) {
+        out.push(cloned);
+      }
+    }
+    return out;
+  }
+}
+
+export class PostReactionState {
+  reactions: PostReaction[] = [];
+  currentUserReaction: PostReaction | null = null;
+
+  static fromJson(json: Record<string, Object>): PostReactionState {
+    const out: PostReactionState = new PostReactionState();
+
+    const reactionsVal = json['reactions'];
+    if (reactionsVal !== undefined && reactionsVal !== null && Array.isArray(reactionsVal)) {
+      const arr: Object[] = reactionsVal as Object[];
+      for (let i = 0; i < arr.length; i++) {
+        const item: Object = arr[i];
+        if (item === null || item === undefined || typeof item !== 'object') {
+          continue;
+        }
+        const reaction: PostReaction = PostReaction.fromJson(item as Record<string, Object>);
+        if (reaction.id.length > 0) {
+          out.reactions.push(reaction);
+        }
+      }
+    }
+
+    const currentVal = json['current_user_reaction'];
+    if (currentVal !== undefined && currentVal !== null) {
+      if (typeof currentVal === 'object') {
+        const reaction: PostReaction = PostReaction.fromJson(currentVal as Record<string, Object>);
+        out.currentUserReaction = reaction.id.length > 0 ? reaction : null;
+      } else {
+        const reactionId: string = json['current_user_reaction'] !== undefined && json['current_user_reaction'] !== null
+          ? json['current_user_reaction'].toString().trim()
+          : '';
+        if (reactionId.length > 0) {
+          const reaction: PostReaction = new PostReaction();
+          reaction.id = reactionId;
+          reaction.type = 'emoji';
+          reaction.count = 0;
+          out.currentUserReaction = reaction;
+        }
+      }
+    }
+
+    if (out.currentUserReaction !== null) {
+      const currentReaction: PostReaction = out.currentUserReaction as PostReaction;
+      let matched: boolean = false;
+      for (let i = 0; i < out.reactions.length; i++) {
+        if (out.reactions[i].id === currentReaction.id) {
+          matched = true;
+          break;
+        }
+      }
+      if (!matched) {
+        const cloned: PostReaction | null = PostReaction.cloneValue(currentReaction);
+        if (cloned !== null) {
+          cloned.count = Math.max(1, cloned.count);
+          out.reactions.push(cloned);
+        }
+      }
+    }
+
+    return out;
+  }
+
+  static cloneState(source: PostReactionState | null | undefined): PostReactionState {
+    const out: PostReactionState = new PostReactionState();
+    if (source === null || source === undefined) {
+      return out;
+    }
+    out.reactions = PostReaction.cloneList(source.reactions);
+    out.currentUserReaction = PostReaction.cloneValue(source.currentUserReaction);
+    return out;
+  }
+}
+
 /**
  * 帖子（回复）数据模型
  */
@@ -217,6 +335,10 @@ export class Post {
 
   // 当前用户是否已点赞
   liked: boolean = false;
+
+  // discourse-reactions 插件回应
+  reactions: PostReaction[] | null = null;
+  currentUserReaction: PostReaction | null = null;
 
   // 相关链接（reflection links）
   linkCounts: LinkCount[] | null = null;
@@ -407,6 +529,13 @@ export class Post {
           break;
         }
       }
+    }
+
+    const reactionState: PostReactionState = PostReactionState.fromJson(json);
+    post.reactions = reactionState.reactions.length > 0 ? reactionState.reactions : null;
+    post.currentUserReaction = reactionState.currentUserReaction;
+    if (post.currentUserReaction !== null) {
+      post.liked = (post.currentUserReaction as PostReaction).id === 'heart';
     }
 
     const badgesVal = json['badges_granted'];

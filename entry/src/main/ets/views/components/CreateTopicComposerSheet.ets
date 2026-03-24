@@ -1,6 +1,7 @@
 import { ApiClient, PostEnqueuedError } from '../../services/network/ApiClient';
 import { Category, SiteResponse } from '../../models/Category';
 import { Draft, DraftData } from '../../models/Draft';
+import { ThemeManager } from '../../common/theme/ThemeManager';
 import { WindowManager } from '../../common/utils/WindowManager';
 import { LoadingSpinner } from './LoadingSpinner';
 import { ToastService } from '../../common/utils/ToastService';
@@ -994,6 +995,12 @@ export struct CreateTopicComposerSheet {
     }
   }
 
+  private getLoadingOverlayBackground(): string {
+    return WindowManager.isDarkMode()
+      ? ThemeManager.hexWithAlpha('#000000', 0.42)
+      : '#66FFFFFF';
+  }
+
   build() {
     Stack({ alignContent: Alignment.Bottom }) {
       Column() {
@@ -1194,7 +1201,7 @@ export struct CreateTopicComposerSheet {
         .height('100%')
         .justifyContent(FlexAlign.Center)
         .alignItems(HorizontalAlign.Center)
-        .backgroundColor('#66FFFFFF')
+        .backgroundColor(this.getLoadingOverlayBackground())
       }
 
       this.RestorePromptOverlay()

@@ -22,6 +22,12 @@ export interface HttpBinaryResponse {
   header: Object | null;
 }
 
+export interface HttpTextResponse {
+  code: number;
+  result: string;
+  header: Object | null;
+}
+
 type HttpRequestBody = string | ArrayBuffer | null;
 
 export interface HttpMultipartFilePart {
@@ -1059,7 +1065,7 @@ export class HttpClient {
   /**
    * PUT 请求
    */
-  async put(path: string, body: string = ''): Promise<string> {
+  async putDetailed(path: string, body: string = ''): Promise<HttpTextResponse> {
     await this.cookieStore.init();
     await this.ensureCsrfToken();
     const url: string = `${this.baseUrl}${path}`;
@@ -1078,12 +1084,19 @@ export class HttpClient {
     );
     const codeVal = resp['code'];
     const code: number = codeVal !== undefined && codeVal !== null ? codeVal as number : 0;
+    const headerVal = resp['header'];
+    const headerObj: Object | null = headerVal !== undefined && headerVal !== null ? headerVal as Object : null;
     const resultVal = resp['result'];
     const result: string = resultVal !== undefined && resultVal !== null ? resultVal as string : '';
-    if (this.isSuccessStatus(code)) {
-      return result;
+    return { code: code, result: result, header: headerObj };
+  }
+
+  async put(path: string, body: string = ''): Promise<string> {
+    const resp: HttpTextResponse = await this.putDetailed(path, body);
+    if (this.isSuccessStatus(resp.code)) {
+      return resp.result;
     }
-    throw new Error(`HTTP ${code}`);
+    throw new Error(`HTTP ${resp.code}`);
   }
 
   /**

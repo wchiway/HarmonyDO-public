@@ -8,6 +8,7 @@ import { TimeUtils } from '../../common/utils/TimeUtils';
 import { AppConstants } from '../../common/constants/AppConstants';
 import { WindowManager } from '../../common/utils/WindowManager';
 import { ApiClient } from '../../services/network/ApiClient';
+import { PreloadedDataService } from '../../services/messagebus/PreloadedDataService';
 import { LinkCount, MentionedUser, Poll, PollOption, Post } from '../../models/Post';
 import { SmartAvatar } from './SmartAvatar';
 import { ExpandedMenuOptions, SelectionMenu } from '@kit.ArkUI';
@@ -2027,8 +2028,8 @@ function parseBlocks(html: string): RichParseResult {
 function normalizeHref(rawHref: string): string {
   const h: string = rawHref !== undefined && rawHref !== null ? rawHref.trim() : '';
   if (h.length === 0) return '';
-  if (h.startsWith('http')) return h;
-  if (h.startsWith('//')) return `https:${h}`;
+  if (h.startsWith('http')) return UrlUtils.resolveUrl(h);
+  if (h.startsWith('//')) return UrlUtils.resolveUrl(h);
   if (h.startsWith('/')) return UrlUtils.resolveUrl(h);
   return h;
 }
@@ -2449,11 +2450,13 @@ export struct PostRichContent {
 
   aboutToAppear(): void {
     this.refreshParsedContent();
+    this.ensureImageHostConfigLoaded();
   }
 
   @Monitor('cookedHtml')
   onCookedHtmlChange(): void {
     this.refreshParsedContent();
+    this.ensureImageHostConfigLoaded();
   }
 
   private getRenderableHtml(): string {
@@ -2467,6 +2470,26 @@ export struct PostRichContent {
 
   private refreshParsedContent(): void {
     this.parsed = parseBlocks(this.getRenderableHtml());
+  }
+
+  private getImageHostConfigSignature(): string {
+    const preloaded: PreloadedDataService = PreloadedDataService.getInstance();
+    return `${preloaded.getCdnUrl() !== null ? preloaded.getCdnUrl() as string : ''}|${
+      preloaded.getS3CdnUrl() !== null ? preloaded.getS3CdnUrl() as string : ''
+    }|${preloaded.getS3BaseUrl() !== null ? preloaded.getS3BaseUrl() as string : ''}`;
+  }
+
+  private ensureImageHostConfigLoaded(): void {
+    const beforeSignature: string = this.getImageHostConfigSignature();
+    PreloadedDataService.getInstance().ensureConfigLoaded(true)
+      .then(() => {
+        const afterSignature: string = this.getImageHostConfigSignature();
+        if (afterSignature !== beforeSignature) {
+          this.refreshParsedContent();
+        }
+      })
+      .catch(() => {
+      });
   }
 
   private updateContentWidthVp(widthValue: number | string | Resource): void {
@@ -2498,13 +2521,19 @@ export struct PostRichContent {
   }
 
   private getPreviewUrls(): string[] {
-    return this.parsed.imagePreviewUrls.length > 0 ? this.parsed.imagePreviewUrls : this.parsed.imageUrls;
+    const urls: string[] = this.parsed.imagePreviewUrls.length > 0 ? this.parsed.imagePreviewUrls : this.parsed.imageUrls;
+    const resolved: string[] = [];
+    for (let i = 0; i < urls.length; i++) {
+      const raw: string = urls[i] !== undefined && urls[i] !== null ? urls[i] : '';
+      resolved.push(UrlUtils.resolveUrl(raw));
+    }
+    return resolved;
   }
 
   private getImageThumbUrl(index: number): string {
     if (index < 0 || index >= this.parsed.imageUrls.length) return '';
     const u: string = this.parsed.imageUrls[index] !== undefined && this.parsed.imageUrls[index] !== null ? this.parsed.imageUrls[index] : '';
-    return u;
+    return UrlUtils.resolveUrl(u);
   }
 
   private getImageWidth(index: number): number {

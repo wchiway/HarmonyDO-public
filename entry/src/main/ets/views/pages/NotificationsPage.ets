@@ -1,6 +1,7 @@
 import { HdsNavDestination } from '@kit.UIDesignKit';
 import { DiscourseNotification, NotificationType } from '../../models/Notification';
 import { User } from '../../models/User';
+import { ThemeManager } from '../../common/theme/ThemeManager';
 import { TimeUtils } from '../../common/utils/TimeUtils';
 import { RouterManager } from '../../common/utils/RouterManager';
 import { WindowManager } from '../../common/utils/WindowManager';
@@ -261,7 +262,14 @@ export struct NotificationsPage {
   }
 
   private getNotificationAccentBackground(notification: DiscourseNotification): string {
-    return `${this.getNotificationAccentColor(notification)}1A`;
+    return ThemeManager.hexWithAlpha(this.getNotificationAccentColor(notification), WindowManager.isDarkMode() ? 0.22 : 0.10);
+  }
+
+  private getUnreadNotificationBackground(notification: DiscourseNotification): string {
+    if (!WindowManager.isDarkMode()) {
+      return '#F3F7FF';
+    }
+    return ThemeManager.hexWithAlpha(this.getNotificationAccentColor(notification), 0.18);
   }
 
   build() {
@@ -506,7 +514,7 @@ export struct NotificationsPage {
     }
     .width('100%')
     .padding({ left: 14, right: 14, top: 14, bottom: 14 })
-    .backgroundColor(notification.read ? $r('app.color.surface') : '#F3F7FF')
+    .backgroundColor(notification.read ? $r('app.color.surface') : this.getUnreadNotificationBackground(notification))
     .borderRadius(16)
     .margin({ bottom: 12 })
     .alignItems(VerticalAlign.Top)

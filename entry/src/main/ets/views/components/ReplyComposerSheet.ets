@@ -1,6 +1,7 @@
 import { ApiClient, PostEnqueuedError } from '../../services/network/ApiClient';
 import { Draft, DraftData } from '../../models/Draft';
 import { Post } from '../../models/Post';
+import { ThemeManager } from '../../common/theme/ThemeManager';
 import { WindowManager } from '../../common/utils/WindowManager';
 import { LoadingSpinner } from './LoadingSpinner';
 import { SmartAvatar } from './SmartAvatar';
@@ -579,6 +580,12 @@ export struct ReplyComposerSheet {
     }
   }
 
+  private getDraftLoadingOverlayBackground(): string {
+    return WindowManager.isDarkMode()
+      ? ThemeManager.hexWithAlpha('#000000', 0.38)
+      : '#55FFFFFF';
+  }
+
   build() {
     Stack({ alignContent: Alignment.Bottom }) {
       Column() {
@@ -728,7 +735,7 @@ export struct ReplyComposerSheet {
         .height('100%')
         .justifyContent(FlexAlign.Center)
         .alignItems(HorizontalAlign.Center)
-        .backgroundColor('#55FFFFFF')
+        .backgroundColor(this.getDraftLoadingOverlayBackground())
       }
 
       this.DiscardConfirmOverlay()

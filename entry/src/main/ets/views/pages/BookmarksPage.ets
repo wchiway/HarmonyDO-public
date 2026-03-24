@@ -7,6 +7,7 @@ import { ApiClient } from '../../services/network/ApiClient';
 import { TimeUtils } from '../../common/utils/TimeUtils';
 import { UrlUtils } from '../../common/utils/UrlUtils';
 import { RouterManager } from '../../common/utils/RouterManager';
+import { ThemeManager } from '../../common/theme/ThemeManager';
 import { WindowManager } from '../../common/utils/WindowManager';
 import { ToastService } from '../../common/utils/ToastService';
 import { LoadingSpinner } from '../components/LoadingSpinner';
@@ -202,6 +203,78 @@ export struct BookmarksPage {
       return '打开后将直达该回复';
     }
     return '打开后将直达已书签回复';
+  }
+
+  private getBookmarkLabelColor(): string {
+    return WindowManager.isDarkMode() ? '#F2C16E' : '#C97700';
+  }
+
+  private getBookmarkTypeAccentColor(topic: Topic): string {
+    return this.isPostBookmark(topic) ? '#C97700' : '#2B5F94';
+  }
+
+  private getBookmarkTypeTextColor(topic: Topic): string {
+    if (!WindowManager.isDarkMode()) {
+      return this.getBookmarkTypeAccentColor(topic);
+    }
+    return this.isPostBookmark(topic) ? '#F2C16E' : '#9BD7FF';
+  }
+
+  private getBookmarkTypeBackground(topic: Topic): string {
+    if (!WindowManager.isDarkMode()) {
+      return this.isPostBookmark(topic) ? '#FFF3D6' : '#E8F0FE';
+    }
+    return ThemeManager.hexWithAlpha(this.getBookmarkTypeAccentColor(topic), 0.22);
+  }
+
+  private getBookmarkTypeBorderColor(topic: Topic): string {
+    return ThemeManager.hexWithAlpha(this.getBookmarkTypeAccentColor(topic), WindowManager.isDarkMode() ? 0.34 : 0.12);
+  }
+
+  private getBookmarkLocationTitleColor(): string {
+    return WindowManager.isDarkMode() ? '#F0C57B' : '#8A5A00';
+  }
+
+  private getBookmarkLocationBadgeTextColor(): string {
+    return WindowManager.isDarkMode() ? '#F2C16E' : '#C97700';
+  }
+
+  private getBookmarkLocationBadgeBackground(): string {
+    if (!WindowManager.isDarkMode()) {
+      return '#FFF3D6';
+    }
+    return ThemeManager.hexWithAlpha('#C97700', 0.22);
+  }
+
+  private getBookmarkLocationBadgeBorderColor(): string {
+    return ThemeManager.hexWithAlpha('#C97700', WindowManager.isDarkMode() ? 0.34 : 0.14);
+  }
+
+  private getBookmarkLocationPanelBackground(): string {
+    if (!WindowManager.isDarkMode()) {
+      return '#FFF8EC';
+    }
+    return ThemeManager.hexWithAlpha('#C97700', 0.12);
+  }
+
+  private getBookmarkLocationPanelBorderColor(): string {
+    return ThemeManager.hexWithAlpha('#C97700', WindowManager.isDarkMode() ? 0.24 : 0.12);
+  }
+
+  private getPreviewEditActionColor(): string {
+    return WindowManager.isDarkMode() ? '#9BD7FF' : '#2B5F94';
+  }
+
+  private getPreviewDeleteActionColor(): string {
+    return WindowManager.isDarkMode() ? '#FF8A80' : '#C83A3A';
+  }
+
+  private getPreviewMenuShadowColor(): string {
+    return WindowManager.isDarkMode() ? '#00000000' : '#1F000000';
+  }
+
+  private getPreviewMenuDisabledColor(): string {
+    return WindowManager.isDarkMode() ? '#717A86' : '#99A3B4';
   }
 
   private mergeBookmarkTopics(preferred: Topic[], extra: Topic[]): Topic[] {
@@ -501,21 +574,25 @@ export struct BookmarksPage {
         Row() {
           SymbolGlyph($r('sys.symbol.bookmark'))
             .fontSize(12)
-            .fontColor(['#C97700'])
+            .fontColor([this.getBookmarkLabelColor()])
 
           Text(topic.bookmarkName !== null && (topic.bookmarkName as string).trim().length > 0
             ? topic.bookmarkName as string
             : '书签')
             .fontSize(12)
-            .fontColor('#C97700')
+            .fontColor(this.getBookmarkLabelColor())
             .margin({ left: 6 })
 
           Text(this.getBookmarkTypeLabel(topic))
             .fontSize(11)
             .fontWeight(FontWeight.Medium)
-            .fontColor(this.isPostBookmark(topic) ? '#C97700' : '#2B5F94')
+            .fontColor(this.getBookmarkTypeTextColor(topic))
             .padding({ left: 8, right: 8, top: 3, bottom: 3 })
-            .backgroundColor(this.isPostBookmark(topic) ? '#FFF3D6' : '#E8F0FE')
+            .backgroundColor(this.getBookmarkTypeBackground(topic))
+            .border({
+              width: WindowManager.isDarkMode() ? 1 : 0,
+              color: this.getBookmarkTypeBorderColor(topic)
+            })
             .borderRadius(9)
             .margin({ left: 10 })
 
@@ -538,15 +615,19 @@ export struct BookmarksPage {
           Text('定位')
             .fontSize(11)
             .fontWeight(FontWeight.Medium)
-            .fontColor('#8A5A00')
+            .fontColor(this.getBookmarkLocationTitleColor())
             .margin({ right: 8 })
 
           Text(this.getBookmarkPostNumberLabel(topic))
             .fontSize(11)
             .fontWeight(FontWeight.Medium)
-            .fontColor('#C97700')
+            .fontColor(this.getBookmarkLocationBadgeTextColor())
             .padding({ left: 8, right: 8, top: 4, bottom: 4 })
-            .backgroundColor('#FFF3D6')
+            .backgroundColor(this.getBookmarkLocationBadgeBackground())
+            .border({
+              width: WindowManager.isDarkMode() ? 1 : 0,
+              color: this.getBookmarkLocationBadgeBorderColor()
+            })
             .borderRadius(10)
             .margin({ right: 8 })
 
@@ -559,7 +640,11 @@ export struct BookmarksPage {
         }
         .width('100%')
         .padding({ left: 12, right: 12, top: 2, bottom: 8 })
-        .backgroundColor('#FFF8EC')
+        .backgroundColor(this.getBookmarkLocationPanelBackground())
+        .border({
+          width: WindowManager.isDarkMode() ? 1 : 0,
+          color: this.getBookmarkLocationPanelBorderColor()
+        })
         .borderRadius(12)
         .margin({ left: 12, right: 12, bottom: 6 })
         .alignItems(VerticalAlign.Center)
@@ -626,11 +711,12 @@ export struct BookmarksPage {
 
           if ((this.previewTopic as Topic).bookmarkId !== null && ((this.previewTopic as Topic).bookmarkId as number) > 0) {
             Column() {
-              this.PreviewMenuItem('编辑书签', '#2B5F94', false, () => {
+              this.PreviewMenuItem('编辑书签', this.getPreviewEditActionColor(), false, () => {
                 this.openBookmarkEditorFromPreview(this.previewTopic as Topic);
               })
               this.PreviewMenuDivider()
-              this.PreviewMenuItem(this.isPreviewDeleting ? '删除中...' : '删除书签', '#C83A3A', this.isPreviewDeleting, () => {
+              this.PreviewMenuItem(this.isPreviewDeleting ? '删除中...' : '删除书签', this.getPreviewDeleteActionColor(),
+                this.isPreviewDeleting, () => {
                 this.deleteBookmarkFromPreview(this.previewTopic as Topic).catch(() => {
                 });
               })
@@ -640,7 +726,7 @@ export struct BookmarksPage {
             .margin({ top: 12 })
             .backgroundColor($r('app.color.surface'))
             .borderRadius(20)
-            .shadow({ radius: 12, color: '#1F000000', offsetX: 0, offsetY: 6 })
+            .shadow({ radius: 12, color: this.getPreviewMenuShadowColor(), offsetX: 0, offsetY: 6 })
           }
         }
         .width('100%')
@@ -657,7 +743,7 @@ export struct BookmarksPage {
       Text(label)
         .fontSize(16)
         .fontWeight(FontWeight.Medium)
-        .fontColor(disabled ? '#99A3B4' : colorValue)
+        .fontColor(disabled ? this.getPreviewMenuDisabledColor() : colorValue)
     }
     .width('100%')
     .padding({ left: 22, right: 22, top: 18, bottom: 18 })

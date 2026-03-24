@@ -2,7 +2,7 @@ import { hilog } from '@kit.PerformanceAnalysisKit';
 import { image } from '@kit.ImageKit';
 import { componentSnapshot } from '@kit.ArkUI';
 import fileIo from '@ohos.file.fs';
-import { Post, ReplyToUser } from '../../models/Post';
+import { Post, PostReaction, PostReactionState, ReplyToUser } from '../../models/Post';
 import { Category, SiteResponse } from '../../models/Category';
 import { GrantedBadge } from '../../models/Badge';
 import { UserStatus } from '../../models/User';
@@ -29,6 +29,7 @@ import { MediaSaveService } from '../../common/utils/MediaSaveService';
 import { DownloadedImage, ImageDownloadService } from '../../common/utils/ImageDownloadService';
 import { HtmlTextMapper } from '../../common/utils/HtmlTextMapper';
 import { HtmlToMarkdown } from '../../common/utils/HtmlToMarkdown';
+import { EmojiResolver } from '../../common/utils/EmojiResolver';
 import { PostRichContent } from '../components/PostRichContent';
 import { PostLinks } from '../components/PostLinks';
 import { ReplyComposerSheet } from '../components/ReplyComposerSheet';
@@ -38,6 +39,7 @@ import { AppContext } from '../../common/utils/AppContext';
 import { PostShareImageParams, postShareImageBuilder } from '../components/PostShareImageCard';
 import { PreferencesUtil } from '../../services/storage/PreferencesUtil';
 import { MessageBusMessage, MessageBusService } from '../../services/messagebus/MessageBusService';
+import { PreloadedDataService } from '../../services/messagebus/PreloadedDataService';
 import { HoldingHandService, HoldingHandState } from '../../services/device/HoldingHandService';
 import {
   FLOATING_TAB_BAR_HEIGHT_VP,
@@ -68,6 +70,18 @@ const SHARE_IMAGE_THEME_COLORS: string[] = ['#F3EBDD', '#FFFFFF', '#1C1C1E', '#0
 const SHARE_IMAGE_THEME_INDICES: number[] = [0, 1, 2, 3, 4, 5];
 const SHARE_IMAGE_SNAPSHOT_DELAY_MS: number = 240;
 const FAB_BOTTOM_MARGIN_VP: number = 16;
+const POST_REACTION_MIN_INTERVAL_MS: number = 900;
+const POST_REACTION_RATE_LIMIT_FALLBACK_SECONDS: number = 13;
+const POST_REACTION_PICKER_PANEL_RADIUS: number = 30;
+const POST_REACTION_PICKER_SCREEN_MARGIN: number = 16;
+const POST_REACTION_PICKER_EDGE_GAP: number = 8;
+
+class ReactionPickerAnchorRect {
+  x: number = 0;
+  y: number = 0;
+  width: number = 0;
+  height: number = 0;
+}
 
 /**
  * 话题详情页面 — 100% 复刻安卓版
@@ -129,6 +143,20 @@ export struct TopicDetailPage {
   @Local isPostBookmarkSheetVisible: boolean = false;
   @Local editingPostBookmarkPost: Post | null = null;
   @Local postBookmarkMutatingPostId: number = 0;
+  @Local postLikeMutatingPostId: number = 0;
+  @Local postLikeUiVersion: number = 0;
+  @Local postReactionUiVersion: number = 0;
+  @Local animatedLikePostId: number = 0;
+  @Local likeButtonScale: number = 1;
+  @Local reactionPickerPostId: number = 0;
+  @Local reactionPickerLoading: boolean = false;
+  @Local reactionPickerOptions: string[] = [];
+  @Local reactionPickerPanelX: number = 0;
+  @Local reactionPickerPanelY: number = 0;
+  @Local reactionPickerPanelScale: number = 0.9;
+  @Local reactionPickerPanelOpacity: number = 0;
+  @Local reactionPickerPanelTranslateY: number = 8;
+  @Local reactionPickerOpenBelow: boolean = false;
   @Local expandedRepliesPostNumber: number = 0;
   @Local expandedRepliesLoading: boolean = false;
   @Local expandedRepliesErrorMessage: string = '';
@@ -209,11 +237,24 @@ export struct TopicDetailPage {
   private shareImageLastScheduledRequestId: number = -1;
   private shareImagePngBuffer: ArrayBuffer | null = null;
   private highlightTimerId: number = -1;
+  private likeAnimationTimerId: number = -1;
   private pendingHighlightPostNumber: number = 0;
   private pendingHighlightListIndex: number = -1;
   private lastVisibleStartIndex: number = 0;
   private lastVisibleEndIndex: number = 0;
   private pendingReplyScrollPostNumber: number = 0;
+  private postLikeStateOverrides: Map<number, boolean> = new Map();
+  private postLikeCountOverrides: Map<number, number> = new Map();
+  private postReactionOverrides: Map<number, PostReactionState> = new Map();
+  private postReactionLastActionAtMap: Map<number, number> = new Map();
+  private postReactionCooldownUntilMap: Map<number, number> = new Map();
+  private postReactionSectionAreaMap: Map<number, ReactionPickerAnchorRect> = new Map();
+  private reactionPickerRootX: number = 0;
+  private reactionPickerRootY: number = 0;
+  private reactionPickerRootWidth: number = 0;
+  private reactionPickerRootHeight: number = 0;
+  private reactionPickerAnimationTimerId: number = -1;
+  private reactionPickerAnimationToken: number = 0;
 
   // MessageBus：话题频道（实时新回复，对齐安卓）
   private topicChannelKey: string = '';
@@ -257,7 +298,10 @@ export struct TopicDetailPage {
     this.stopTimeTick();
     this.closeShareImageSheet();
     this.closeExportSheet();
+    this.closeReactionPicker();
+    this.clearReactionPickerAnimationTimer();
     this.clearHighlightTimer();
+    this.clearLikeAnimationTimer();
     this.detachTopicChannel();
     this.detachAuthStateListener();
     this.detachHoldingHandListener();
@@ -548,6 +592,844 @@ export struct TopicDetailPage {
     return postId > 0 && this.postBookmarkMutatingPostId === postId;
   }
 
+  private isPostLikeMutating(postId: number): boolean {
+    return postId > 0 && this.postLikeMutatingPostId === postId;
+  }
+
+  private getPostReactionCooldownRemainingSeconds(postId: number): number {
+    if (postId <= 0) {
+      return 0;
+    }
+    const cooldownUntil: number = this.postReactionCooldownUntilMap.get(postId) ?? 0;
+    if (cooldownUntil <= 0) {
+      return 0;
+    }
+    const remainingMs: number = cooldownUntil - Date.now();
+    if (remainingMs <= 0) {
+      this.postReactionCooldownUntilMap.delete(postId);
+      return 0;
+    }
+    return Math.max(1, Math.ceil(remainingMs / 1000));
+  }
+
+  private setPostReactionCooldown(postId: number, seconds: number): void {
+    if (postId <= 0 || seconds <= 0) {
+      return;
+    }
+    this.postReactionCooldownUntilMap.set(postId, Date.now() + seconds * 1000);
+  }
+
+  private markPostReactionAction(postId: number): void {
+    if (postId <= 0) {
+      return;
+    }
+    this.postReactionLastActionAtMap.set(postId, Date.now());
+  }
+
+  private shouldThrottlePostReactionAction(postId: number): boolean {
+    if (postId <= 0) {
+      return false;
+    }
+    const cooldownSeconds: number = this.getPostReactionCooldownRemainingSeconds(postId);
+    if (cooldownSeconds > 0) {
+      ToastService.show(`操作过快，请${cooldownSeconds}秒后再试`);
+      return true;
+    }
+    const lastActionAt: number = this.postReactionLastActionAtMap.get(postId) ?? 0;
+    if (lastActionAt > 0 && Date.now() - lastActionAt < POST_REACTION_MIN_INTERVAL_MS) {
+      ToastService.show('操作过快，请稍后再试');
+      return true;
+    }
+    return false;
+  }
+
+  private clearReactionPickerAnimationTimer(): void {
+    if (this.reactionPickerAnimationTimerId >= 0) {
+      clearTimeout(this.reactionPickerAnimationTimerId);
+      this.reactionPickerAnimationTimerId = -1;
+    }
+  }
+
+  private resetReactionPickerVisualState(): void {
+    this.reactionPickerPanelScale = 0.9;
+    this.reactionPickerPanelOpacity = 0;
+    this.reactionPickerPanelTranslateY = this.reactionPickerOpenBelow ? -8 : 8;
+  }
+
+  private parseSafeNumber(value: Object | null | undefined): number {
+    if (value === undefined || value === null) {
+      return 0;
+    }
+    const parsed: number = Number(value.toString());
+    return isNaN(parsed) ? 0 : parsed;
+  }
+
+  private readAreaPositionValue(area: Area, key: string): number {
+    if (key === 'x') {
+      const globalX: number = this.parseSafeNumber(area.globalPosition.x);
+      return globalX !== 0 ? globalX : this.parseSafeNumber(area.position.x);
+    }
+    if (key === 'y') {
+      const globalY: number = this.parseSafeNumber(area.globalPosition.y);
+      return globalY !== 0 ? globalY : this.parseSafeNumber(area.position.y);
+    }
+    return 0;
+  }
+
+  private updateReactionPickerRootArea(area: Area): void {
+    this.reactionPickerRootX = this.readAreaPositionValue(area, 'x');
+    this.reactionPickerRootY = this.readAreaPositionValue(area, 'y');
+    this.reactionPickerRootWidth = this.parseSafeNumber(area.width);
+    this.reactionPickerRootHeight = this.parseSafeNumber(area.height);
+    if (this.reactionPickerPostId > 0) {
+      this.layoutReactionPicker(this.reactionPickerPostId);
+    }
+  }
+
+  private updatePostReactionSectionArea(postId: number, area: Area): void {
+    if (postId <= 0) {
+      return;
+    }
+    const nextRect: ReactionPickerAnchorRect = new ReactionPickerAnchorRect();
+    nextRect.x = this.readAreaPositionValue(area, 'x');
+    nextRect.y = this.readAreaPositionValue(area, 'y');
+    nextRect.width = this.parseSafeNumber(area.width);
+    nextRect.height = this.parseSafeNumber(area.height);
+    this.postReactionSectionAreaMap.set(postId, nextRect);
+    if (this.isReactionPickerVisible(postId)) {
+      this.layoutReactionPicker(postId);
+    }
+  }
+
+  private getReactionPickerAnchorRect(postId: number): ReactionPickerAnchorRect | null {
+    if (postId <= 0 || !this.postReactionSectionAreaMap.has(postId)) {
+      return null;
+    }
+    const source: ReactionPickerAnchorRect = this.postReactionSectionAreaMap.get(postId) as ReactionPickerAnchorRect;
+    const nextRect: ReactionPickerAnchorRect = new ReactionPickerAnchorRect();
+    nextRect.x = source.x;
+    nextRect.y = source.y;
+    nextRect.width = source.width;
+    nextRect.height = source.height;
+    return nextRect;
+  }
+
+  private layoutReactionPicker(postId: number): void {
+    const panelWidth: number = this.getPostReactionPickerPanelWidth();
+    const panelHeight: number = this.getPostReactionPickerPanelHeight();
+    const viewportWidth: number = this.reactionPickerRootWidth > 0 ? this.reactionPickerRootWidth : 360;
+    const viewportHeight: number = this.reactionPickerRootHeight > 0 ? this.reactionPickerRootHeight : 640;
+    const safeTop: number = WindowManager.getSystemAvoidAreaTopVp() + POST_REACTION_PICKER_SCREEN_MARGIN;
+    const safeBottom: number = viewportHeight - POST_REACTION_PICKER_SCREEN_MARGIN;
+    const anchorRect: ReactionPickerAnchorRect | null = this.getReactionPickerAnchorRect(postId);
+
+    let anchorCenterX: number = viewportWidth - POST_REACTION_PICKER_SCREEN_MARGIN - 24;
+    let anchorCenterY: number = viewportHeight - 120;
+    if (anchorRect !== null) {
+      anchorCenterX = anchorRect.x - this.reactionPickerRootX + Math.max(0, anchorRect.width) - 20;
+      anchorCenterY = anchorRect.y - this.reactionPickerRootY + Math.max(0, anchorRect.height) / 2;
+    }
+
+    let left: number = anchorCenterX - panelWidth / 2;
+    left = Math.max(POST_REACTION_PICKER_SCREEN_MARGIN, Math.min(left, viewportWidth - panelWidth - POST_REACTION_PICKER_SCREEN_MARGIN));
+
+    let top: number = anchorCenterY - panelHeight - POST_REACTION_PICKER_EDGE_GAP;
+    let openBelow: boolean = false;
+    if (top < safeTop) {
+      top = anchorCenterY + POST_REACTION_PICKER_EDGE_GAP;
+      openBelow = true;
+    }
+    if (top + panelHeight > safeBottom) {
+      top = Math.max(safeTop, safeBottom - panelHeight);
+    }
+
+    this.reactionPickerPanelX = left;
+    this.reactionPickerPanelY = top;
+    this.reactionPickerOpenBelow = openBelow;
+  }
+
+  private animateReactionPickerIn(): void {
+    this.clearReactionPickerAnimationTimer();
+    this.reactionPickerAnimationToken = this.reactionPickerAnimationToken + 1;
+    const currentToken: number = this.reactionPickerAnimationToken;
+    this.reactionPickerPanelOpacity = 0;
+    this.reactionPickerPanelScale = 0.86;
+    this.reactionPickerPanelTranslateY = this.reactionPickerOpenBelow ? -8 : 8;
+
+    const uiContext = this.getUIContext();
+    if (uiContext !== undefined && uiContext !== null) {
+      uiContext.animateTo({ duration: 180, curve: Curve.EaseOut }, () => {
+        this.reactionPickerPanelOpacity = 1;
+        this.reactionPickerPanelScale = 1.05;
+        this.reactionPickerPanelTranslateY = 0;
+      });
+      this.reactionPickerAnimationTimerId = setTimeout(() => {
+        if (currentToken !== this.reactionPickerAnimationToken || this.reactionPickerPostId <= 0) {
+          this.reactionPickerAnimationTimerId = -1;
+          return;
+        }
+        const nextContext = this.getUIContext();
+        if (nextContext !== undefined && nextContext !== null) {
+          nextContext.animateTo({ duration: 125, curve: Curve.EaseOut }, () => {
+            this.reactionPickerPanelScale = 1;
+          });
+        } else {
+          this.reactionPickerPanelScale = 1;
+        }
+        this.reactionPickerAnimationTimerId = -1;
+      }, 185) as number;
+      return;
+    }
+
+    this.reactionPickerPanelOpacity = 1;
+    this.reactionPickerPanelScale = 1;
+    this.reactionPickerPanelTranslateY = 0;
+  }
+
+  private dismissReactionPicker(animated: boolean = true): void {
+    if (this.reactionPickerPostId <= 0) {
+      this.closeReactionPicker();
+      return;
+    }
+    if (!animated) {
+      this.closeReactionPicker();
+      return;
+    }
+
+    this.clearReactionPickerAnimationTimer();
+    this.reactionPickerAnimationToken = this.reactionPickerAnimationToken + 1;
+    const currentToken: number = this.reactionPickerAnimationToken;
+    const closingPostId: number = this.reactionPickerPostId;
+    const exitTranslateY: number = this.reactionPickerOpenBelow ? -6 : 6;
+    const uiContext = this.getUIContext();
+    if (uiContext !== undefined && uiContext !== null) {
+      uiContext.animateTo({ duration: 120, curve: Curve.EaseInOut }, () => {
+        this.reactionPickerPanelOpacity = 0;
+        this.reactionPickerPanelScale = 0.92;
+        this.reactionPickerPanelTranslateY = exitTranslateY;
+      });
+    } else {
+      this.reactionPickerPanelOpacity = 0;
+      this.reactionPickerPanelScale = 0.92;
+      this.reactionPickerPanelTranslateY = exitTranslateY;
+    }
+    this.reactionPickerAnimationTimerId = setTimeout(() => {
+      if (currentToken === this.reactionPickerAnimationToken && this.reactionPickerPostId === closingPostId) {
+        this.closeReactionPicker();
+      }
+      this.reactionPickerAnimationTimerId = -1;
+    }, 125) as number;
+  }
+
+  private findPostById(postId: number): Post | null {
+    if (postId <= 0) {
+      return null;
+    }
+    for (let i = 0; i < this.posts.length; i++) {
+      if (this.posts[i].id === postId) {
+        return this.posts[i];
+      }
+    }
+    for (let i = 0; i < this.expandedReplies.length; i++) {
+      if (this.expandedReplies[i].id === postId) {
+        return this.expandedReplies[i];
+      }
+    }
+    return null;
+  }
+
+  private getPostLikeButtonScale(postId: number): number {
+    return this.animatedLikePostId === postId ? this.likeButtonScale : 1;
+  }
+
+  private clearLikeAnimationTimer(): void {
+    if (this.likeAnimationTimerId >= 0) {
+      clearTimeout(this.likeAnimationTimerId);
+      this.likeAnimationTimerId = -1;
+    }
+  }
+
+  private clearPostLikeOverrides(): void {
+    this.postLikeStateOverrides.clear();
+    this.postLikeCountOverrides.clear();
+    this.postLikeUiVersion = this.postLikeUiVersion + 1;
+  }
+
+  private clearPostReactionOverrides(): void {
+    this.postReactionOverrides.clear();
+    this.postReactionUiVersion = this.postReactionUiVersion + 1;
+  }
+
+  private isReactionPickerVisible(postId: number): boolean {
+    return postId > 0 && this.reactionPickerPostId === postId;
+  }
+
+  private closeReactionPicker(): void {
+    this.clearReactionPickerAnimationTimer();
+    this.reactionPickerPostId = 0;
+    this.reactionPickerLoading = false;
+    this.reactionPickerOptions = [];
+    this.resetReactionPickerVisualState();
+  }
+
+  private normalizeReactionId(reactionId: string | null | undefined): string {
+    const normalized: string = reactionId !== undefined && reactionId !== null ? reactionId.toString().trim().toLowerCase() : '';
+    if (normalized === 'thumbsup' || normalized === 'thumbs_up') {
+      return '+1';
+    }
+    return normalized;
+  }
+
+  private isHeartReactionId(reactionId: string | null | undefined): boolean {
+    return this.normalizeReactionId(reactionId) === 'heart';
+  }
+
+  private createPostReaction(reactionId: string, count: number = 0, type: string = 'emoji'): PostReaction {
+    const reaction: PostReaction = new PostReaction();
+    reaction.id = this.normalizeReactionId(reactionId);
+    reaction.type = type !== undefined && type !== null && type.toString().trim().length > 0 ? type.toString().trim() : 'emoji';
+    reaction.count = Math.max(0, Math.round(count));
+    return reaction;
+  }
+
+  private getReactionCountById(reactions: PostReaction[], reactionId: string): number {
+    const targetId: string = this.normalizeReactionId(reactionId);
+    if (targetId.length === 0 || reactions.length === 0) {
+      return 0;
+    }
+    for (let i = 0; i < reactions.length; i++) {
+      if (this.normalizeReactionId(reactions[i].id) === targetId) {
+        return Math.max(0, reactions[i].count);
+      }
+    }
+    return 0;
+  }
+
+  private getReactionIconUrl(reactionId: string): string {
+    const normalized: string = this.normalizeReactionId(reactionId);
+    if (normalized.length === 0) {
+      return '';
+    }
+    return EmojiResolver.resolveEmojiUrl(`:${normalized}:`);
+  }
+
+  private getReactionFallbackText(reactionId: string): string {
+    const normalized: string = this.normalizeReactionId(reactionId);
+    if (normalized === 'heart') return '❤️';
+    if (normalized === 'thumbsup' || normalized === '+1') return '👍';
+    if (normalized === 'laughing') return '😆';
+    if (normalized === 'joy') return '😂';
+    if (normalized === 'open_mouth') return '😮';
+    if (normalized === 'clap') return '👏';
+    if (normalized === 'cry') return '😢';
+    if (normalized === 'angry') return '😠';
+    if (normalized === 'rocket') return '🚀';
+    if (normalized === 'fire') return '🔥';
+    if (normalized === 'eyes') return '👀';
+    if (normalized === 'thinking_face') return '🤔';
+    return normalized.length > 0 ? `:${normalized}:` : '';
+  }
+
+  private buildPostReactionStateFromPost(post: Post): PostReactionState {
+    const state: PostReactionState = new PostReactionState();
+    const sourceReactions: PostReaction[] = PostReaction.cloneList(post.reactions);
+    for (let i = 0; i < sourceReactions.length; i++) {
+      const reaction: PostReaction = sourceReactions[i];
+      reaction.id = this.normalizeReactionId(reaction.id);
+      if (reaction.id.length === 0 || reaction.count <= 0) {
+        continue;
+      }
+      state.reactions.push(reaction);
+    }
+
+    const currentReaction: PostReaction | null = PostReaction.cloneValue(post.currentUserReaction);
+    if (currentReaction !== null) {
+      currentReaction.id = this.normalizeReactionId(currentReaction.id);
+      if (currentReaction.id.length > 0) {
+        state.currentUserReaction = currentReaction;
+      }
+    }
+
+    if (state.currentUserReaction === null && post.liked) {
+      const heartCount: number = Math.max(1, Math.max(post.likeCount, this.getReactionCountById(state.reactions, 'heart')));
+      state.currentUserReaction = this.createPostReaction('heart', heartCount);
+    }
+
+    if (state.reactions.length === 0) {
+      const fallbackHeartCount: number = Math.max(post.likeCount, state.currentUserReaction !== null && this.isHeartReactionId((state.currentUserReaction as PostReaction).id) ? 1 : 0);
+      if (fallbackHeartCount > 0) {
+        state.reactions.push(this.createPostReaction('heart', fallbackHeartCount));
+      }
+    }
+
+    if (state.currentUserReaction !== null) {
+      const currentId: string = this.normalizeReactionId((state.currentUserReaction as PostReaction).id);
+      let matched: boolean = false;
+      for (let i = 0; i < state.reactions.length; i++) {
+        if (this.normalizeReactionId(state.reactions[i].id) === currentId) {
+          matched = true;
+          if (state.reactions[i].count <= 0) {
+            state.reactions[i].count = 1;
+          }
+          break;
+        }
+      }
+      if (!matched) {
+        const fallbackCount: number = Math.max(1, (state.currentUserReaction as PostReaction).count);
+        state.reactions.push(this.createPostReaction(currentId, fallbackCount, (state.currentUserReaction as PostReaction).type));
+      }
+    }
+
+    return state;
+  }
+
+  private getResolvedPostReactionState(post: Post): PostReactionState {
+    const trackedVersion: number = this.postReactionUiVersion;
+    if (trackedVersion < 0) {
+      return this.buildPostReactionStateFromPost(post);
+    }
+    if (post.id > 0 && this.postReactionOverrides.has(post.id)) {
+      return PostReactionState.cloneState(this.postReactionOverrides.get(post.id) as PostReactionState);
+    }
+    return this.buildPostReactionStateFromPost(post);
+  }
+
+  private getResolvedPostReactions(post: Post): PostReaction[] {
+    return this.getResolvedPostReactionState(post).reactions;
+  }
+
+  private getResolvedCurrentUserReaction(post: Post): PostReaction | null {
+    return this.getResolvedPostReactionState(post).currentUserReaction;
+  }
+
+  private getResolvedPostReactionTotalCount(post: Post): number {
+    const reactions: PostReaction[] = this.getResolvedPostReactions(post);
+    let total: number = 0;
+    for (let i = 0; i < reactions.length; i++) {
+      total += Math.max(0, reactions[i].count);
+    }
+    return total;
+  }
+
+  private isHeartOnlyReaction(reactions: PostReaction[]): boolean {
+    let visibleCount: number = 0;
+    let hasHeart: boolean = false;
+    for (let i = 0; i < reactions.length; i++) {
+      if (reactions[i].count <= 0) {
+        continue;
+      }
+      visibleCount = visibleCount + 1;
+      if (this.isHeartReactionId(reactions[i].id)) {
+        hasHeart = true;
+      }
+    }
+    return visibleCount === 1 && hasHeart;
+  }
+
+  private getReactionSummaryReactions(post: Post): PostReaction[] {
+    const reactions: PostReaction[] = this.getResolvedPostReactions(post);
+    if (this.isHeartOnlyReaction(reactions)) {
+      return [];
+    }
+    const out: PostReaction[] = [];
+    for (let i = 0; i < reactions.length; i++) {
+      if (reactions[i].count <= 0) {
+        continue;
+      }
+      out.push(reactions[i]);
+      if (out.length >= 3) {
+        break;
+      }
+    }
+    return out;
+  }
+
+  private getPostReactionCountText(post: Post): string {
+    const total: number = this.getResolvedPostReactionTotalCount(post);
+    return total > 0 ? this.formatPostActionCount(total) : '';
+  }
+
+  private getPostReactionPickerMaxColumns(): number {
+    return 5;
+  }
+
+  private getPostReactionPickerItemSize(): number {
+    return 40;
+  }
+
+  private getPostReactionPickerItemGap(): number {
+    return 1;
+  }
+
+  private getPostReactionPickerPanelPadding(): number {
+    return 4;
+  }
+
+  private estimateInlineTextWidth(text: string, fontSize: number = 12): number {
+    const safeText: string = text !== undefined && text !== null ? text.toString() : '';
+    if (safeText.length === 0) {
+      return fontSize;
+    }
+    return Math.max(fontSize, Math.round(safeText.length * fontSize * 0.72));
+  }
+
+  private getReactionPickerOptionCount(): number {
+    if (this.reactionPickerOptions.length > 0) {
+      return this.reactionPickerOptions.length;
+    }
+    return PreloadedDataService.getInstance().getEnabledReactions().length;
+  }
+
+  private getPostReactionPickerColumnCount(): number {
+    const optionCount: number = this.getReactionPickerOptionCount();
+    if (optionCount <= 0) {
+      return 1;
+    }
+    return Math.min(this.getPostReactionPickerMaxColumns(), optionCount);
+  }
+
+  private getPostReactionPickerRowCount(): number {
+    const optionCount: number = this.getReactionPickerOptionCount();
+    if (optionCount <= 0) {
+      return 1;
+    }
+    return Math.max(1, Math.ceil(optionCount / this.getPostReactionPickerMaxColumns()));
+  }
+
+  private getPostReactionPickerPanelWidth(): number {
+    const columns: number = this.getPostReactionPickerColumnCount();
+    const itemSize: number = this.getPostReactionPickerItemSize();
+    const gap: number = this.getPostReactionPickerItemGap();
+    const padding: number = this.getPostReactionPickerPanelPadding();
+    return columns * itemSize + Math.max(0, columns - 1) * gap + padding * 2;
+  }
+
+  private getPostReactionPickerPanelHeight(): number {
+    const rows: number = this.getPostReactionPickerRowCount();
+    const itemSize: number = this.getPostReactionPickerItemSize();
+    const gap: number = this.getPostReactionPickerItemGap();
+    const padding: number = this.getPostReactionPickerPanelPadding();
+    return rows * itemSize + Math.max(0, rows - 1) * gap + padding * 2;
+  }
+
+  private shouldShowPostReactionSummary(post: Post): boolean {
+    return this.getResolvedPostReactionTotalCount(post) > 0;
+  }
+
+  private isCurrentPostReaction(post: Post, reactionId: string): boolean {
+    const currentReaction: PostReaction | null = this.getResolvedCurrentUserReaction(post);
+    return currentReaction !== null
+      && this.normalizeReactionId((currentReaction as PostReaction).id) === this.normalizeReactionId(reactionId);
+  }
+
+  private getPostReactionBarWidth(post: Post): number {
+    if (!this.shouldShowPostReactionSummary(post)) {
+      return 44;
+    }
+
+    const summaryReactions: PostReaction[] = this.getReactionSummaryReactions(post);
+    const textWidth: number = this.estimateInlineTextWidth(this.getPostReactionCountText(post), 12);
+    let summaryIconsWidth: number = 0;
+    if (summaryReactions.length > 0) {
+      summaryIconsWidth = summaryReactions.length * 18 + Math.max(0, summaryReactions.length - 1) * 3 + 6;
+    }
+
+    const summaryWidth: number = 12 + summaryIconsWidth + textWidth + 8;
+    return summaryWidth + 40;
+  }
+
+  private getPostReactionPickerPositionX(post: Post): number {
+    const buttonCenterX: number = this.getPostReactionBarWidth(post) - 22;
+    return buttonCenterX - this.getPostReactionPickerPanelWidth() / 2;
+  }
+
+  private getPostReactionPickerPositionY(): number {
+    return -(this.getPostReactionPickerPanelHeight() + 4);
+  }
+
+  private applyPostReactionOverride(postId: number, state: PostReactionState): void {
+    if (postId <= 0) {
+      return;
+    }
+    this.postReactionOverrides.set(postId, PostReactionState.cloneState(state));
+    this.postReactionUiVersion = this.postReactionUiVersion + 1;
+  }
+
+  private updatePostReactionState(postId: number, state: PostReactionState): void {
+    if (postId <= 0) {
+      return;
+    }
+    const nextState: PostReactionState = PostReactionState.cloneState(state);
+    const nextCurrentReaction: PostReaction | null = PostReaction.cloneValue(nextState.currentUserReaction);
+    const nextReactions: PostReaction[] = PostReaction.cloneList(nextState.reactions);
+    const nextHeartCount: number = this.getReactionCountById(nextReactions, 'heart');
+
+    const applyUpdate = (source: Post[]): Post[] => {
+      if (source.length === 0) {
+        return source;
+      }
+      let changed: boolean = false;
+      const next: Post[] = [];
+      for (let i = 0; i < source.length; i++) {
+        const current: Post = source[i];
+        if (current.id === postId) {
+          const updatedPost: Post = this.clonePost(current);
+          updatedPost.reactions = nextReactions.length > 0 ? PostReaction.cloneList(nextReactions) : null;
+          updatedPost.currentUserReaction = PostReaction.cloneValue(nextCurrentReaction);
+          updatedPost.liked = nextCurrentReaction !== null && this.isHeartReactionId((nextCurrentReaction as PostReaction).id);
+          updatedPost.likeCount = nextHeartCount;
+          next.push(updatedPost);
+          changed = true;
+          continue;
+        }
+        next.push(current);
+      }
+      return changed ? next : source;
+    };
+
+    this.posts = applyUpdate(this.posts);
+    this.expandedReplies = applyUpdate(this.expandedReplies);
+  }
+
+  private buildNextReactionState(previousState: PostReactionState, reactionId: string): PostReactionState {
+    const targetReactionId: string = this.normalizeReactionId(reactionId);
+    const nextState: PostReactionState = PostReactionState.cloneState(previousState);
+    if (targetReactionId.length === 0) {
+      return nextState;
+    }
+
+    const currentReaction: PostReaction | null = PostReaction.cloneValue(nextState.currentUserReaction);
+    const currentReactionId: string = currentReaction !== null ? this.normalizeReactionId((currentReaction as PostReaction).id) : '';
+    if (currentReactionId.length > 0) {
+      for (let i = nextState.reactions.length - 1; i >= 0; i--) {
+        if (this.normalizeReactionId(nextState.reactions[i].id) !== currentReactionId) {
+          continue;
+        }
+        nextState.reactions[i].count = Math.max(0, nextState.reactions[i].count - 1);
+        if (nextState.reactions[i].count <= 0) {
+          nextState.reactions.splice(i, 1);
+        }
+        break;
+      }
+      nextState.currentUserReaction = null;
+      if (currentReactionId === targetReactionId) {
+        return nextState;
+      }
+    }
+
+    let targetIndex: number = -1;
+    for (let i = 0; i < nextState.reactions.length; i++) {
+      if (this.normalizeReactionId(nextState.reactions[i].id) === targetReactionId) {
+        targetIndex = i;
+        break;
+      }
+    }
+    if (targetIndex >= 0) {
+      nextState.reactions[targetIndex].count = Math.max(0, nextState.reactions[targetIndex].count) + 1;
+      nextState.currentUserReaction = this.createPostReaction(
+        nextState.reactions[targetIndex].id,
+        nextState.reactions[targetIndex].count,
+        nextState.reactions[targetIndex].type
+      );
+      return nextState;
+    }
+
+    const addedReaction: PostReaction = this.createPostReaction(targetReactionId, 1);
+    nextState.reactions.push(addedReaction);
+    nextState.currentUserReaction = this.createPostReaction(addedReaction.id, addedReaction.count, addedReaction.type);
+    return nextState;
+  }
+
+  private async showReactionPicker(post: Post): Promise<void> {
+    if (post.id <= 0) {
+      return;
+    }
+    const loggedIn: boolean = await this.ensureLoggedInForAction();
+    if (!loggedIn) {
+      ToastService.showLoginRequired();
+      return;
+    }
+    if (this.isReactionPickerVisible(post.id) && !this.reactionPickerLoading) {
+      this.dismissReactionPicker();
+      return;
+    }
+
+    this.reactionPickerPostId = post.id;
+    this.reactionPickerOptions = PreloadedDataService.getInstance().getEnabledReactions();
+    this.reactionPickerLoading = this.reactionPickerOptions.length === 0;
+    this.layoutReactionPicker(post.id);
+    this.animateReactionPickerIn();
+
+    try {
+      await PreloadedDataService.getInstance().ensureConfigLoaded(true);
+    } catch (_) {
+    }
+
+    if (!this.isReactionPickerVisible(post.id)) {
+      return;
+    }
+    this.reactionPickerOptions = PreloadedDataService.getInstance().getEnabledReactions();
+    this.reactionPickerLoading = false;
+    this.layoutReactionPicker(post.id);
+  }
+
+  private async handlePostReactionAction(post: Post, reactionId: string = ''): Promise<void> {
+    if (this.isPostLikeMutating(post.id)) {
+      return;
+    }
+    const loggedIn: boolean = await this.ensureLoggedInForAction();
+    if (!loggedIn) {
+      ToastService.showLoginRequired();
+      return;
+    }
+    if (post.id <= 0) {
+      ToastService.show('无效的帖子');
+      return;
+    }
+    if (this.shouldThrottlePostReactionAction(post.id)) {
+      return;
+    }
+    this.markPostReactionAction(post.id);
+
+    const previousState: PostReactionState = this.getResolvedPostReactionState(post);
+    const previousCurrentReaction: PostReaction | null = previousState.currentUserReaction;
+    let targetReactionId: string = this.normalizeReactionId(reactionId);
+    if (targetReactionId.length === 0) {
+      targetReactionId = previousCurrentReaction !== null
+        ? this.normalizeReactionId((previousCurrentReaction as PostReaction).id)
+        : 'heart';
+    }
+    if (targetReactionId.length === 0) {
+      targetReactionId = 'heart';
+    }
+
+    const optimisticState: PostReactionState = this.buildNextReactionState(previousState, targetReactionId);
+    this.postLikeMutatingPostId = post.id;
+    this.closeReactionPicker();
+    this.applyPostReactionOverride(post.id, optimisticState);
+    this.updatePostReactionState(post.id, optimisticState);
+    this.playPostLikeAnimation(post.id);
+
+    try {
+      const latestState: PostReactionState = await ApiClient.getInstance().toggleReaction(post.id, targetReactionId);
+      this.applyPostReactionOverride(post.id, latestState);
+      this.updatePostReactionState(post.id, latestState);
+    } catch (err) {
+      this.applyPostReactionOverride(post.id, previousState);
+      this.updatePostReactionState(post.id, previousState);
+      const message: string = ApiClient.formatError(err).replace('Error: ', '').trim();
+      if (message.indexOf('HTTP 429') >= 0) {
+        const retryAfterSeconds: number = ApiClient.extractRetryAfterSeconds(err, POST_REACTION_RATE_LIMIT_FALLBACK_SECONDS);
+        this.setPostReactionCooldown(post.id, retryAfterSeconds);
+        ToastService.show(`操作过快，请${retryAfterSeconds}秒后再试`);
+      } else {
+        ToastService.show(message.length > 0 && message !== 'Unknown error' ? message : '回应失败');
+      }
+    } finally {
+      if (this.postLikeMutatingPostId === post.id) {
+        this.postLikeMutatingPostId = 0;
+      }
+    }
+  }
+
+  private getResolvedPostLiked(post: Post): boolean {
+    const trackedVersion: number = this.postLikeUiVersion;
+    if (trackedVersion < 0) {
+      return post.liked;
+    }
+    if (post.id > 0 && this.postLikeStateOverrides.has(post.id)) {
+      return this.postLikeStateOverrides.get(post.id) as boolean;
+    }
+    return post.liked;
+  }
+
+  private getResolvedPostLikeCount(post: Post): number {
+    const trackedVersion: number = this.postLikeUiVersion;
+    if (trackedVersion < 0) {
+      return Math.max(0, post.likeCount);
+    }
+    if (post.id > 0 && this.postLikeCountOverrides.has(post.id)) {
+      return Math.max(0, this.postLikeCountOverrides.get(post.id) as number);
+    }
+    return Math.max(0, post.likeCount);
+  }
+
+  private applyPostLikeOverride(postId: number, liked: boolean, likeCount: number): void {
+    if (postId <= 0) {
+      return;
+    }
+    this.postLikeStateOverrides.set(postId, liked);
+    this.postLikeCountOverrides.set(postId, Math.max(0, likeCount));
+    this.postLikeUiVersion = this.postLikeUiVersion + 1;
+  }
+
+  private clonePost(source: Post): Post {
+    const cloned: Post = new Post();
+    cloned.id = source.id;
+    cloned.name = source.name;
+    cloned.username = source.username;
+    cloned.avatarTemplate = source.avatarTemplate;
+    cloned.animatedAvatar = source.animatedAvatar;
+    cloned.cooked = source.cooked;
+    cloned.postNumber = source.postNumber;
+    cloned.postType = source.postType;
+    cloned.updatedAt = source.updatedAt;
+    cloned.createdAt = source.createdAt;
+    cloned.likeCount = source.likeCount;
+    cloned.replyCount = source.replyCount;
+    cloned.replyToPostNumber = source.replyToPostNumber;
+    cloned.replyToUser = source.replyToUser;
+    cloned.bookmarked = source.bookmarked;
+    cloned.bookmarkId = source.bookmarkId;
+    cloned.bookmarkName = source.bookmarkName;
+    cloned.bookmarkReminderAt = source.bookmarkReminderAt;
+    cloned.read = source.read;
+    cloned.canEdit = source.canEdit;
+    cloned.canDelete = source.canDelete;
+    cloned.flairUrl = source.flairUrl;
+    cloned.flairName = source.flairName;
+    cloned.flairBgColor = source.flairBgColor;
+    cloned.flairColor = source.flairColor;
+    cloned.primaryGroupName = source.primaryGroupName;
+    cloned.groupModerator = source.groupModerator;
+    cloned.acceptedAnswer = source.acceptedAnswer;
+    cloned.deletedAt = source.deletedAt;
+    cloned.userDeleted = source.userDeleted;
+    cloned.userTitle = source.userTitle;
+    cloned.userStatus = source.userStatus;
+    cloned.userId = source.userId;
+    cloned.moderator = source.moderator;
+    cloned.admin = source.admin;
+    cloned.badgesGranted = source.badgesGranted;
+    cloned.hidden = source.hidden;
+    cloned.liked = source.liked;
+    cloned.reactions = PostReaction.cloneList(source.reactions);
+    cloned.currentUserReaction = PostReaction.cloneValue(source.currentUserReaction);
+    cloned.linkCounts = source.linkCounts;
+    cloned.polls = source.polls;
+    cloned.pollsVotes = source.pollsVotes;
+    cloned.mentionedUsers = source.mentionedUsers;
+    cloned.actionCode = source.actionCode;
+    cloned.actionCodeWho = source.actionCodeWho;
+    return cloned;
+  }
+
+  private formatPostActionCount(count: number): string {
+    const safeCount: number = Math.max(0, count);
+    if (safeCount >= 10000) {
+      return `${(safeCount / 10000).toFixed(1)}w`;
+    }
+    if (safeCount >= 1000) {
+      return `${(safeCount / 1000).toFixed(1)}k`;
+    }
+    return safeCount.toString();
+  }
+
+  private getPostLikeCountText(post: Post): string {
+    const likeCount: number = this.getResolvedPostLikeCount(post);
+    return likeCount > 0 ? this.formatPostActionCount(likeCount) : '';
+  }
+
   private getPostBookmarkActionLabel(post: Post): string {
     if (this.isPostBookmarkMutating(post.id)) {
       return '处理中...';
@@ -577,11 +1459,14 @@ export struct TopicDetailPage {
       for (let i = 0; i < source.length; i++) {
         const current: Post = source[i];
         if (current.id === postId) {
-          current.bookmarked = bookmarked;
-          current.bookmarkId = bookmarkId;
-          current.bookmarkName = bookmarkName;
-          current.bookmarkReminderAt = bookmarkReminderAt;
+          const updatedPost: Post = this.clonePost(current);
+          updatedPost.bookmarked = bookmarked;
+          updatedPost.bookmarkId = bookmarkId;
+          updatedPost.bookmarkName = bookmarkName;
+          updatedPost.bookmarkReminderAt = bookmarkReminderAt;
+          next.push(updatedPost);
           changed = true;
+          continue;
         }
         next.push(current);
       }
@@ -592,7 +1477,7 @@ export struct TopicDetailPage {
     this.expandedReplies = applyUpdate(this.expandedReplies);
 
     if (this.editingPostBookmarkPost !== null && (this.editingPostBookmarkPost as Post).id === postId) {
-      const editingPost: Post = this.editingPostBookmarkPost as Post;
+      const editingPost: Post = this.clonePost(this.editingPostBookmarkPost as Post);
       editingPost.bookmarked = bookmarked;
       editingPost.bookmarkId = bookmarkId;
       editingPost.bookmarkName = bookmarkName;
@@ -603,6 +1488,118 @@ export struct TopicDetailPage {
 
   private clearPostBookmarkState(postId: number): void {
     this.updatePostBookmarkState(postId, false, null, null, null);
+  }
+
+  private updatePostLikeState(postId: number, liked: boolean): void {
+    if (postId <= 0) {
+      return;
+    }
+    const applyUpdate = (source: Post[]): Post[] => {
+      if (source.length === 0) {
+        return source;
+      }
+      let changed: boolean = false;
+      const next: Post[] = [];
+      for (let i = 0; i < source.length; i++) {
+        const current: Post = source[i];
+        if (current.id === postId) {
+          const updatedPost: Post = this.clonePost(current);
+          if (updatedPost.liked !== liked) {
+            updatedPost.likeCount = Math.max(0, updatedPost.likeCount + (liked ? 1 : -1));
+          }
+          updatedPost.liked = liked;
+          next.push(updatedPost);
+          changed = true;
+          continue;
+        }
+        next.push(current);
+      }
+      return changed ? next : source;
+    };
+
+    this.posts = applyUpdate(this.posts);
+    this.expandedReplies = applyUpdate(this.expandedReplies);
+  }
+
+  private playPostLikeAnimation(postId: number): void {
+    if (postId <= 0) {
+      return;
+    }
+    this.clearLikeAnimationTimer();
+    this.animatedLikePostId = postId;
+    this.likeButtonScale = 0.92;
+
+    const uiContext = this.getUIContext();
+    if (uiContext !== undefined && uiContext !== null) {
+      uiContext.animateTo({ duration: 110, curve: Curve.EaseOut }, () => {
+        this.likeButtonScale = 1.12;
+      });
+      this.likeAnimationTimerId = setTimeout(() => {
+        const nextContext = this.getUIContext();
+        if (nextContext !== undefined && nextContext !== null) {
+          nextContext.animateTo({ duration: 170, curve: Curve.EaseOut }, () => {
+            this.likeButtonScale = 1;
+          });
+        } else {
+          this.likeButtonScale = 1;
+        }
+        this.likeAnimationTimerId = setTimeout(() => {
+          this.likeButtonScale = 1;
+          this.animatedLikePostId = 0;
+          this.likeAnimationTimerId = -1;
+        }, 190) as number;
+      }, 120) as number;
+      return;
+    }
+
+    this.likeButtonScale = 1.08;
+    this.likeAnimationTimerId = setTimeout(() => {
+      this.likeButtonScale = 1;
+      this.animatedLikePostId = 0;
+      this.likeAnimationTimerId = -1;
+    }, 180) as number;
+  }
+
+  private async handlePostLikeAction(post: Post): Promise<void> {
+    if (this.isPostLikeMutating(post.id)) {
+      return;
+    }
+    const loggedIn: boolean = await this.ensureLoggedInForAction();
+    if (!loggedIn) {
+      ToastService.showLoginRequired();
+      return;
+    }
+    if (post.id <= 0) {
+      ToastService.show('无效的帖子');
+      return;
+    }
+
+    const previousLiked: boolean = this.getResolvedPostLiked(post);
+    const previousCount: number = this.getResolvedPostLikeCount(post);
+    const nextLiked: boolean = !previousLiked;
+    const nextCount: number = Math.max(0, previousCount + (nextLiked ? 1 : -1));
+    this.postLikeMutatingPostId = post.id;
+    this.applyPostLikeOverride(post.id, nextLiked, nextCount);
+    this.updatePostLikeState(post.id, nextLiked);
+    this.playPostLikeAnimation(post.id);
+    try {
+      if (nextLiked) {
+        await ApiClient.getInstance().likePost(post.id);
+      } else {
+        await ApiClient.getInstance().unlikePost(post.id);
+      }
+    } catch (err) {
+      this.applyPostLikeOverride(post.id, previousLiked, previousCount);
+      this.updatePostLikeState(post.id, previousLiked);
+      const message: string = ApiClient.formatError(err).replace('Error: ', '').trim();
+      ToastService.show(message.length > 0 && message !== 'Unknown error'
+        ? message
+        : (nextLiked ? '点赞失败' : '取消点赞失败'));
+    } finally {
+      if (this.postLikeMutatingPostId === post.id) {
+        this.postLikeMutatingPostId = 0;
+      }
+    }
   }
 
   private applyPostBookmarkUpdate(
@@ -974,6 +1971,17 @@ export struct TopicDetailPage {
     this.isPostBookmarkSheetVisible = false;
     this.editingPostBookmarkPost = null;
     this.postBookmarkMutatingPostId = 0;
+    this.postLikeMutatingPostId = 0;
+    this.clearPostLikeOverrides();
+    this.clearPostReactionOverrides();
+    this.postReactionLastActionAtMap.clear();
+    this.postReactionCooldownUntilMap.clear();
+    this.postReactionSectionAreaMap.clear();
+    this.animatedLikePostId = 0;
+    this.likeButtonScale = 1;
+    this.clearLikeAnimationTimer();
+    this.closeReactionPicker();
+    this.clearReactionPickerAnimationTimer();
 
     this.replyCount = 0;
     this.postsCount = 0;
@@ -2666,6 +3674,196 @@ export struct TopicDetailPage {
     .width('100%')
   }
 
+  @Builder
+  private PostReactionGlyph(reactionId: string, iconSize: number = 18, filledHeart: boolean = true) {
+    if (this.isHeartReactionId(reactionId)) {
+      SymbolGlyph(filledHeart ? $r('sys.symbol.heart_fill') : $r('sys.symbol.heart'))
+        .fontSize(iconSize)
+        .fontColor([filledHeart ? $r('app.color.like_color') : $r('app.color.on_surface_secondary')])
+    } else if (this.getReactionIconUrl(reactionId).length > 0) {
+      Image(this.getReactionIconUrl(reactionId))
+        .width(iconSize)
+        .height(iconSize)
+        .objectFit(ImageFit.Contain)
+    } else {
+      Text(this.getReactionFallbackText(reactionId))
+        .fontSize(Math.max(14, iconSize - 1))
+        .fontColor($r('app.color.on_surface'))
+    }
+  }
+
+  @Builder
+  private PostReactionPicker(post: Post) {
+    Column() {
+      if (this.reactionPickerLoading) {
+        Row() {
+          LoadingSpinner({ message: '' })
+        }
+        .width('100%')
+        .justifyContent(FlexAlign.Center)
+        .alignItems(VerticalAlign.Center)
+        .padding({ top: 8, bottom: 8 })
+      } else {
+        Flex({ wrap: FlexWrap.Wrap, justifyContent: FlexAlign.Start, alignItems: ItemAlign.Center }) {
+          ForEach(this.reactionPickerOptions, (reactionId: string) => {
+            Column() {
+              this.PostReactionGlyph(reactionId, 26, true)
+            }
+            .width(this.getPostReactionPickerItemSize())
+            .height(this.getPostReactionPickerItemSize())
+            .borderRadius(this.getPostReactionPickerItemSize() / 2)
+            .justifyContent(FlexAlign.Center)
+            .alignItems(HorizontalAlign.Center)
+            .backgroundColor(this.isCurrentPostReaction(post, reactionId) ? '#14FFFFFF' : Color.Transparent)
+            .margin({
+              right: this.getPostReactionPickerItemGap(),
+              bottom: this.getPostReactionPickerItemGap()
+            })
+            .opacity(this.isPostLikeMutating(post.id) ? 0.6 : 1)
+            .onClick(() => {
+              this.handlePostReactionAction(post, reactionId).catch((_: Object) => {
+              });
+            })
+          }, (reactionId: string) => reactionId)
+        }
+        .width(this.getPostReactionPickerPanelWidth() - this.getPostReactionPickerPanelPadding() * 2 + this.getPostReactionPickerItemGap())
+      }
+    }
+    .width(this.getPostReactionPickerPanelWidth())
+    .padding({
+      left: this.getPostReactionPickerPanelPadding(),
+      right: Math.max(2, this.getPostReactionPickerPanelPadding() - this.getPostReactionPickerItemGap()),
+      top: this.getPostReactionPickerPanelPadding(),
+      bottom: Math.max(2, this.getPostReactionPickerPanelPadding() - this.getPostReactionPickerItemGap())
+    })
+    .backgroundColor($r('app.color.surface_variant'))
+    .borderRadius(POST_REACTION_PICKER_PANEL_RADIUS)
+    .border({ width: 0.5, color: $r('app.color.divider_light') })
+    .shadow({ radius: 18, color: '#26000000', offsetX: 0, offsetY: 8 })
+  }
+
+  @Builder
+  private PostReactionBar(post: Post) {
+    Row() {
+      if (this.shouldShowPostReactionSummary(post)) {
+        Row() {
+          if (this.getReactionSummaryReactions(post).length > 0) {
+            Row() {
+              ForEach(this.getReactionSummaryReactions(post), (reaction: PostReaction, index: number) => {
+                Column() {
+                  this.PostReactionGlyph(reaction.id, 15, true)
+                }
+                .width(18)
+                .height(18)
+                .justifyContent(FlexAlign.Center)
+                .alignItems(HorizontalAlign.Center)
+                .margin({ right: index < this.getReactionSummaryReactions(post).length - 1 ? 3 : 0 })
+              }, (reaction: PostReaction) => `${reaction.id}_${reaction.count}`)
+            }
+            .margin({ right: 6 })
+          }
+
+          Text(this.getPostReactionCountText(post))
+            .fontSize(12)
+            .fontWeight(FontWeight.Bold)
+            .fontColor($r('app.color.on_surface_secondary'))
+        }
+        .height(36)
+        .padding({ left: 12, right: 8 })
+        .alignItems(VerticalAlign.Center)
+      }
+
+      Row() {
+        if (this.getResolvedCurrentUserReaction(post) !== null) {
+          this.PostReactionGlyph((this.getResolvedCurrentUserReaction(post) as PostReaction).id, 18, true)
+        } else {
+          this.PostReactionGlyph('heart', 18, false)
+        }
+      }
+      .width(36)
+      .height(36)
+      .borderRadius(18)
+      .backgroundColor(this.getResolvedCurrentUserReaction(post) !== null ? $r('app.color.background') : Color.Transparent)
+      .justifyContent(FlexAlign.Center)
+      .alignItems(VerticalAlign.Center)
+      .onClick(() => {
+        this.closeReactionPicker();
+        this.handlePostReactionAction(post).catch((_: Object) => {
+        });
+      })
+    }
+    .height(36)
+    .padding({ left: this.shouldShowPostReactionSummary(post) ? 0 : 4, right: 4 })
+    .borderRadius(18)
+    .backgroundColor($r('app.color.surface_variant'))
+    .border({
+      width: this.getResolvedCurrentUserReaction(post) !== null ? 1 : 0,
+      color: this.isHeartReactionId(
+        this.getResolvedCurrentUserReaction(post) !== null ? (this.getResolvedCurrentUserReaction(post) as PostReaction).id : ''
+      )
+        ? $r('app.color.like_color')
+        : $r('app.color.primary')
+    })
+    .justifyContent(FlexAlign.Center)
+    .alignItems(VerticalAlign.Center)
+    .scale({
+      x: this.getPostLikeButtonScale(post.id),
+      y: this.getPostLikeButtonScale(post.id)
+    })
+    .animation({ duration: 180, curve: Curve.EaseOut })
+    .opacity(this.isPostLikeMutating(post.id) ? 0.72 : 1)
+    .parallelGesture(
+      LongPressGesture({ repeat: false, duration: 350 })
+        .onAction(() => {
+          this.showReactionPicker(post).catch((_: Object) => {
+          });
+        })
+    )
+  }
+
+  @Builder
+  private PostReactionSection(post: Post) {
+    Column() {
+      this.PostReactionBar(post)
+    }
+    .width(this.getPostReactionBarWidth(post))
+    .height(36)
+    .margin({ right: 10 })
+    .onAreaChange((_: Area, newArea: Area) => {
+      this.updatePostReactionSectionArea(post.id, newArea);
+    })
+  }
+
+  @Builder
+  private ReactionPickerOverlayLayer() {
+    if (this.reactionPickerPostId > 0) {
+      Stack({ alignContent: Alignment.TopStart }) {
+        Column() {
+        }
+        .width('100%')
+        .height('100%')
+        .backgroundColor('#01000000')
+        .onClick(() => {
+          this.dismissReactionPicker();
+        })
+
+        if (this.findPostById(this.reactionPickerPostId) !== null) {
+          Column() {
+            this.PostReactionPicker(this.findPostById(this.reactionPickerPostId) as Post)
+          }
+          .position({ x: this.reactionPickerPanelX, y: this.reactionPickerPanelY })
+          .translate({ x: 0, y: this.reactionPickerPanelTranslateY })
+          .scale({ x: this.reactionPickerPanelScale, y: this.reactionPickerPanelScale })
+          .opacity(this.reactionPickerPanelOpacity)
+          .enabled(this.reactionPickerPanelOpacity > 0)
+        }
+      }
+      .width('100%')
+      .height('100%')
+      .clip(false)
+    }
+  }
+
   build() {
     HdsNavDestination() {
       Stack() {
@@ -2764,6 +3962,9 @@ export struct TopicDetailPage {
                   this.maybeTriggerPendingHighlight(start, end);
                 })
                 .onScrollFrameBegin((offset: number, state: ScrollState) => {
+                  if (this.reactionPickerPostId > 0 && Math.abs(offset) > 0.1) {
+                    this.closeReactionPicker();
+                  }
                   // 记录滚动偏移，用于控制 AppBar 标题显隐（offset 为每帧增量）
                   const next: number = Math.max(0, this.scrollOffset + offset);
                   this.scrollOffset = next;
@@ -2988,6 +4189,8 @@ export struct TopicDetailPage {
           })
         }
 
+        this.ReactionPickerOverlayLayer()
+
         // 离屏分享卡片（用于生成分享图片的组件快照）
         if (this.isShareImageSheetVisible) {
           ForEach([this.shareImageCardId], (cardId: string) => {
@@ -3078,6 +4281,9 @@ export struct TopicDetailPage {
       }
       .width('100%')
       .height('100%')
+      .onAreaChange((_: Area, newArea: Area) => {
+        this.updateReactionPickerRootArea(newArea);
+      })
       .bindSheet($$this.isTimelineSheetVisible, this.TimelineSheetBuilder, {
         height: SheetSize.MEDIUM,
         dragBar: false,
@@ -3990,7 +5196,7 @@ export struct TopicDetailPage {
               .fontSize(16)
               .fontColor([$r('app.color.on_surface')])
               .margin({ right: 10 })
-            Text('回复此楼')
+            Text('回复')
               .fontSize(14)
               .fontColor($r('app.color.on_surface'))
           }
@@ -4004,29 +5210,6 @@ export struct TopicDetailPage {
         .onChange((selected: boolean) => {
           if (selected) {
             this.openReplySheet(post);
-          }
-        })
-
-        MenuItem() {
-          Row() {
-            SymbolGlyph($r('sys.symbol.doc_text'))
-              .fontSize(16)
-              .fontColor([$r('app.color.on_surface')])
-              .margin({ right: 10 })
-            Text('引用回复')
-              .fontSize(14)
-              .fontColor($r('app.color.on_surface'))
-          }
-          .width('100%')
-          .padding({ left: 12, right: 12 })
-          .alignItems(VerticalAlign.Center)
-        }
-        .selected(false)
-        .selectIcon(false)
-        .height(44)
-        .onChange((selected: boolean) => {
-          if (selected) {
-            this.openPostQuoteReply(post);
           }
         })
 
@@ -5036,7 +6219,7 @@ export struct TopicDetailPage {
           this.PostSolutionBanner(this.acceptedAnswerPostNumber)
         }
 
-        // 底部操作行（UI 复刻阶段：保留基础占位）
+        // 底部操作行
         Row() {
           // 左侧：楼层回复数，只要 reply_count>0 就显示；首贴也可能存在真正的定向回复
           if (post.replyCount > 0) {
@@ -5067,29 +6250,10 @@ export struct TopicDetailPage {
           Blank().layoutWeight(1)
 
           if (!this.isGuestMode) {
-            Column() {
-              SymbolGlyph(post.bookmarked ? $r('sys.symbol.bookmark_fill') : $r('sys.symbol.bookmark'))
-                .fontSize(18)
-                .fontColor([post.bookmarked ? $r('app.color.primary') : $r('app.color.on_surface_secondary')])
-            }
-            .width(36)
-            .height(36)
-            .borderRadius(18)
-            .backgroundColor(post.bookmarked ? $r('app.color.badge_background_light') : $r('app.color.surface_variant'))
-            .border({
-              width: post.bookmarked ? 1 : 0,
-              color: $r('app.color.primary')
-            })
-            .justifyContent(FlexAlign.Center)
-            .alignItems(HorizontalAlign.Center)
-            .margin({ right: 10 })
-            .onClick(() => {
-              this.handlePostBookmarkAction(post).catch((_: Object) => {
-              });
-            })
+            this.PostReactionSection(post)
           }
 
-          // 右侧：更多（游客态严格隐藏点赞，互动功能后续登录态再开放）
+          // 右侧：更多
           Column() {
             SymbolGlyph($r('sys.symbol.ellipsis_circle'))
               .fontSize(18)

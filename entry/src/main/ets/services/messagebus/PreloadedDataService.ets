@@ -10,6 +10,23 @@ const TAG: string = 'PreloadedDataService';
 const PRELOAD_PATH: string = '/latest';
 const PREF_KEY_LONG_POLLING_BASE_URL: string = 'message_bus_long_polling_base_url_v1';
 const PREF_KEY_SHARED_SESSION_KEY: string = 'message_bus_shared_session_key_v1';
+const PREF_KEY_CDN_URL: string = 'site_cdn_url_v1';
+const PREF_KEY_S3_CDN_URL: string = 'site_s3_cdn_url_v1';
+const PREF_KEY_S3_BASE_URL: string = 'site_s3_base_url_v1';
+const PREF_KEY_ENABLED_REACTIONS: string = 'site_enabled_reactions_v1';
+const LEGACY_ENABLED_REACTIONS: string[] = ['heart', '+1', 'laughing', 'open_mouth', 'clap'];
+const DEFAULT_ENABLED_REACTIONS: string[] = [
+  'heart',
+  '+1',
+  'laughing',
+  'open_mouth',
+  'clap',
+  'confetti_ball',
+  'hugs',
+  'distorted_face',
+  'tieba_087',
+  'bili_057'
+];
 
 /**
  * 预加载数据服务（对齐 FluxDO）
@@ -36,6 +53,7 @@ export class PreloadedDataService {
   private s3BaseUrl: string | null = null;
   private topicTrackingStateMeta: Map<string, number> | null = null;
   private topicTrackingStates: Record<string, Object>[] | null = null;
+  private enabledReactions: string[] | null = null;
 
   private constructor() {
   }
@@ -98,6 +116,17 @@ export class PreloadedDataService {
     return this.topicTrackingStates;
   }
 
+  getEnabledReactions(): string[] {
+    const source: string[] | null = this.enabledReactions;
+    if (source === null || source.length === 0) {
+      return this.cloneEnabledReactions(DEFAULT_ENABLED_REACTIONS);
+    }
+    if (this.isLegacyEnabledReactions(source)) {
+      return this.cloneEnabledReactions(DEFAULT_ENABLED_REACTIONS);
+    }
+    return this.cloneEnabledReactions(source);
+  }
+
   async clearSessionScopedState(): Promise<void> {
     this.loaded = false;
     this.inFlight = null;
@@ -107,6 +136,7 @@ export class PreloadedDataService {
     this.sharedSessionKey = null;
     this.topicTrackingStateMeta = null;
     this.topicTrackingStates = null;
+    this.enabledReactions = null;
 
     try {
       MessageBusService.getInstance().configure(this.longPollingBaseUrl, null);
@@ -177,6 +207,7 @@ export class PreloadedDataService {
     this.s3BaseUrl = null;
     this.topicTrackingStateMeta = null;
     this.topicTrackingStates = null;
+    this.enabledReactions = null;
     this.inFlight = null;
     this.configLoaded = false;
     this.configInFlight = null;
@@ -212,18 +243,47 @@ export class PreloadedDataService {
       await PreferencesUtil.ensureInit();
       const cachedBaseRaw: string = await PreferencesUtil.getString(PREF_KEY_LONG_POLLING_BASE_URL, '');
       const cachedKeyRaw: string = await PreferencesUtil.getString(PREF_KEY_SHARED_SESSION_KEY, '');
+      const cachedCdnRaw: string = await PreferencesUtil.getString(PREF_KEY_CDN_URL, '');
+      const cachedS3CdnRaw: string = await PreferencesUtil.getString(PREF_KEY_S3_CDN_URL, '');
+      const cachedS3BaseRaw: string = await PreferencesUtil.getString(PREF_KEY_S3_BASE_URL, '');
+      const cachedEnabledReactionsRaw: string = await PreferencesUtil.getString(PREF_KEY_ENABLED_REACTIONS, '');
       if (!this.isAuthGenerationCurrent(authGeneration, 'configure_cache')) {
         return;
       }
 
       const cachedBase: string | null = cachedBaseRaw.length > 0 ? this.normalizePollingBaseUrl(cachedBaseRaw) : null;
       const cachedKey: string | null = cachedKeyRaw.length > 0 ? cachedKeyRaw.trim() : null;
+      const cachedCdn: string | null = cachedCdnRaw.length > 0 ? cachedCdnRaw.trim() : null;
+      const cachedS3Cdn: string | null = cachedS3CdnRaw.length > 0 ? cachedS3CdnRaw.trim() : null;
+      const cachedS3Base: string | null = cachedS3BaseRaw.length > 0 ? cachedS3BaseRaw.trim() : null;
+      const cachedEnabledReactions: string[] | null = this.parseEnabledReactions(cachedEnabledReactionsRaw);
+      const effectiveCachedEnabledReactions: string[] | null = this.isLegacyEnabledReactions(cachedEnabledReactions)
+        ? this.cloneEnabledReactions(DEFAULT_ENABLED_REACTIONS)
+        : cachedEnabledReactions;
 
       if (cachedBase !== null) {
         this.longPollingBaseUrl = cachedBase;
       }
       if (cachedKey !== null && cachedKey.length > 0) {
         this.sharedSessionKey = cachedKey;
+      }
+      if (cachedCdn !== null && cachedCdn.length > 0) {
+        this.cdnUrl = cachedCdn;
+      }
+      if (cachedS3Cdn !== null && cachedS3Cdn.length > 0) {
+        this.s3CdnUrl = cachedS3Cdn;
+      }
+      if (cachedS3Base !== null && cachedS3Base.length > 0) {
+        this.s3BaseUrl = cachedS3Base;
+      }
+      if (effectiveCachedEnabledReactions !== null && effectiveCachedEnabledReactions.length > 0) {
+        this.enabledReactions = effectiveCachedEnabledReactions;
+      }
+
+      if (this.isLegacyEnabledReactions(cachedEnabledReactions)) {
+        PreferencesUtil.putString(PREF_KEY_ENABLED_REACTIONS, this.joinEnabledReactions(DEFAULT_ENABLED_REACTIONS)).catch((err: Object) => {
+          hilog.warn(0x0000, TAG, 'Upgrade enabledReactions cache failed: %{public}s', JSON.stringify(err));
+        });
       }
 
       if (cachedBase !== null || (cachedKey !== null && cachedKey.length > 0)) {
@@ -238,7 +298,177 @@ export class PreloadedDataService {
           );
         }
       }
+      if (AppConstants.DEBUG_TRACKING && (cachedCdn !== null || cachedS3Cdn !== null || cachedS3Base !== null)) {
+        hilog.info(
+          0x0000,
+          TAG,
+          'Image host config loaded from cache cdn=%{public}s s3Cdn=%{public}s s3Base=%{public}s',
+          this.cdnUrl !== null ? (this.cdnUrl as string) : '',
+          this.s3CdnUrl !== null ? (this.s3CdnUrl as string) : '',
+          this.s3BaseUrl !== null ? (this.s3BaseUrl as string) : ''
+        );
+      }
     } catch (_) {
+    }
+  }
+
+  private cloneEnabledReactions(source: string[] | null | undefined): string[] {
+    if (source === null || source === undefined || source.length === 0) {
+      return [];
+    }
+    const out: string[] = [];
+    for (let i = 0; i < source.length; i++) {
+      out.push(source[i]);
+    }
+    return out;
+  }
+
+  private joinEnabledReactions(source: string[] | null | undefined): string {
+    if (source === null || source === undefined || source.length === 0) {
+      return '';
+    }
+    let out: string = '';
+    for (let i = 0; i < source.length; i++) {
+      if (i > 0) {
+        out += '|';
+      }
+      out += source[i];
+    }
+    return out;
+  }
+
+  private normalizeEnabledReactions(source: string[]): string[] {
+    const out: string[] = [];
+    const seen: Map<string, boolean> = new Map();
+    for (let i = 0; i < source.length; i++) {
+      let raw: string = source[i] !== undefined && source[i] !== null ? source[i].toString().trim().toLowerCase() : '';
+      if (raw === 'thumbsup' || raw === 'thumbs_up') {
+        raw = '+1';
+      }
+      if (raw.length === 0) {
+        continue;
+      }
+      if (seen.has(raw)) {
+        continue;
+      }
+      seen.set(raw, true);
+      out.push(raw);
+    }
+    return out;
+  }
+
+  private isLegacyEnabledReactions(source: string[] | null | undefined): boolean {
+    if (source === null || source === undefined) {
+      return false;
+    }
+    const normalized: string[] = this.normalizeEnabledReactions(source);
+    if (normalized.length !== LEGACY_ENABLED_REACTIONS.length) {
+      return false;
+    }
+    for (let i = 0; i < LEGACY_ENABLED_REACTIONS.length; i++) {
+      if (normalized.indexOf(LEGACY_ENABLED_REACTIONS[i]) < 0) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  private parseEnabledReactions(raw: string | null | undefined): string[] | null {
+    const text: string = raw !== null && raw !== undefined ? raw.toString().trim() : '';
+    if (text.length === 0) {
+      return null;
+    }
+
+    let candidates: string[] = [];
+    if (text.startsWith('[') && text.endsWith(']')) {
+      try {
+        const parsed: Object = JSON.parse(text) as Object;
+        if (Array.isArray(parsed)) {
+          const arr: Object[] = parsed as Object[];
+          for (let i = 0; i < arr.length; i++) {
+            const item: Object = arr[i];
+            if (item !== null && item !== undefined) {
+              candidates.push(item.toString());
+            }
+          }
+        }
+      } catch (_) {
+        candidates = [];
+      }
+    }
+
+    if (candidates.length === 0) {
+      candidates = text.split('|');
+    }
+
+    const normalized: string[] = this.normalizeEnabledReactions(candidates);
+    return normalized.length > 0 ? normalized : null;
+  }
+
+  private extractEnabledReactionsFromSiteSettings(siteSettings: Record<string, Object>): string[] | null {
+    const candidates: Object[] = [];
+    const snakeVal = siteSettings['discourse_reactions_enabled_reactions'];
+    if (snakeVal !== undefined && snakeVal !== null) {
+      candidates.push(snakeVal);
+    }
+    const camelVal = siteSettings['discourseReactionsEnabledReactions'];
+    if (camelVal !== undefined && camelVal !== null) {
+      candidates.push(camelVal);
+    }
+
+    for (let i = 0; i < candidates.length; i++) {
+      const candidate: Object = candidates[i];
+      if (Array.isArray(candidate)) {
+        const arr: Object[] = candidate as Object[];
+        const raw: string[] = [];
+        for (let j = 0; j < arr.length; j++) {
+          const item: Object = arr[j];
+          if (item !== null && item !== undefined) {
+            raw.push(item.toString());
+          }
+        }
+        const normalized: string[] = this.normalizeEnabledReactions(raw);
+        if (normalized.length > 0) {
+          return normalized;
+        }
+        continue;
+      }
+
+      const parsed: string[] | null = this.parseEnabledReactions(candidate.toString());
+      if (parsed !== null && parsed.length > 0) {
+        return parsed;
+      }
+    }
+
+    return null;
+  }
+
+  private persistEnabledReactionsIfChanged(prevEnabledReactions: string[] | null): void {
+    const prevJoined: string = this.joinEnabledReactions(prevEnabledReactions);
+    const nextJoined: string = this.joinEnabledReactions(this.enabledReactions);
+    if (nextJoined.length === 0 || nextJoined === prevJoined) {
+      return;
+    }
+    PreferencesUtil.putString(PREF_KEY_ENABLED_REACTIONS, nextJoined).catch((err: Object) => {
+      hilog.warn(0x0000, TAG, 'Cache enabledReactions failed: %{public}s', JSON.stringify(err));
+    });
+  }
+
+  private persistImageHostConfigIfChanged(prevCdn: string | null, prevS3Cdn: string | null, prevS3Base: string | null): void {
+    if (this.cdnUrl !== null && this.cdnUrl !== prevCdn) {
+      PreferencesUtil.putString(PREF_KEY_CDN_URL, this.cdnUrl as string).catch((err: Object) => {
+        hilog.warn(0x0000, TAG, 'Cache cdnUrl failed: %{public}s', JSON.stringify(err));
+      });
+    }
+    if (this.s3CdnUrl !== null && this.s3CdnUrl !== prevS3Cdn) {
+      PreferencesUtil.putString(PREF_KEY_S3_CDN_URL, this.s3CdnUrl as string).catch((err: Object) => {
+        hilog.warn(0x0000, TAG, 'Cache s3CdnUrl failed: %{public}s', JSON.stringify(err));
+      });
+    }
+    if (this.s3BaseUrl !== null && this.s3BaseUrl !== prevS3Base) {
+      PreferencesUtil.putString(PREF_KEY_S3_BASE_URL, this.s3BaseUrl as string).catch((err: Object) => {
+        hilog.warn(0x0000, TAG, 'Cache s3BaseUrl failed: %{public}s', JSON.stringify(err));
+      });
     }
   }
 
@@ -445,6 +675,11 @@ export class PreloadedDataService {
     }
 
     if (html.length > 0) {
+      const prevCdn: string | null = this.cdnUrl;
+      const prevS3Cdn: string | null = this.s3CdnUrl;
+      const prevS3Base: string | null = this.s3BaseUrl;
+      this.extractCdnConfigFromHtml(html);
+      this.persistImageHostConfigIfChanged(prevCdn, prevS3Cdn, prevS3Base);
       // Turnstile sitekey：用于 cf_clearance 自动续期（即使本次没触发 challenge，也尽量更新一次）
       this.extractTurnstileSitekeyFromHtml(html);
     }
@@ -452,8 +687,9 @@ export class PreloadedDataService {
     // shared_session_key（跨域 MessageBus）
     const nextShared: string | null = html.length > 0 ? this.extractMetaContent(html, 'shared_session_key') : null;
 
-    // data-preloaded: 仅抽取 siteSettings.long_polling_base_url（避免整串 decode + JSON.parse）
+    // data-preloaded: 仅抽取 siteSettings.long_polling_base_url / enabled reactions（避免整串 decode + JSON.parse）
     let nextBase: string | null = null;
+    let nextEnabledReactions: string[] | null = null;
     if (html.length > 0) {
       try {
         const match: string[] | null = html.match(/data-preloaded=\"([^\"]*)\"/);
@@ -462,13 +698,22 @@ export class PreloadedDataService {
 
           // 1) 快速路径：直接从 HTML attribute（仍是 &quot; 形式，且 siteSettings 内层 JSON 会出现 \&quot;）提取
           let rawVal: string | null = null;
+          let rawEnabledReactions: string | null = null;
           const baseMatch: string[] | null = encoded.match(
             /long_polling_base_url(?:\\)?&quot;\s*:\s*(?:\\)?&quot;(.+?)(?:\\)?&quot;/i
           );
           if (baseMatch !== null && baseMatch.length >= 2) {
             rawVal = this.decodeHtmlEntities(baseMatch[1]);
-          } else {
-            // 2) 兜底：只在 fast path 失败时才 decode + JSON.parse 外层，再 parse siteSettings（对齐 FluxDO 解析方式）
+          }
+          const enabledMatch: string[] | null = encoded.match(
+            /discourse_reactions_enabled_reactions(?:\\)?&quot;\s*:\s*(?:\\)?&quot;(.+?)(?:\\)?&quot;/i
+          );
+          if (enabledMatch !== null && enabledMatch.length >= 2) {
+            rawEnabledReactions = this.decodeHtmlEntities(enabledMatch[1]);
+          }
+
+          if (rawVal === null || rawEnabledReactions === null) {
+            // 2) 兜底：只在 fast path 缺字段时才 decode + JSON.parse 外层，再 parse siteSettings（对齐 FluxDO 解析方式）
             try {
               const decoded: string = this.decodeHtmlEntities(encoded);
               const outer: Record<string, Object> = JSON.parse(decoded) as Record<string, Object>;
@@ -478,19 +723,29 @@ export class PreloadedDataService {
                 : null;
               if (siteSettingsObj !== null && siteSettingsObj !== undefined && typeof siteSettingsObj === 'object') {
                 const siteSettings: Record<string, Object> = siteSettingsObj as Record<string, Object>;
-                const pollingVal = siteSettings['long_polling_base_url'];
-                if (pollingVal !== undefined && pollingVal !== null) {
-                  rawVal = pollingVal.toString();
+                if (rawVal === null) {
+                  const pollingVal = siteSettings['long_polling_base_url'];
+                  if (pollingVal !== undefined && pollingVal !== null) {
+                    rawVal = pollingVal.toString();
+                  }
+                }
+                if (rawEnabledReactions === null) {
+                  nextEnabledReactions = this.extractEnabledReactionsFromSiteSettings(siteSettings);
                 }
               }
             } catch (_) {
-              rawVal = null;
+              if (rawVal === null) {
+                rawVal = null;
+              }
             }
           }
 
           if (rawVal !== null && rawVal.length > 0) {
             const unescaped: string = this.tryDecodeJsonEscapedString(rawVal);
             nextBase = this.normalizePollingBaseUrl(unescaped);
+          }
+          if (rawEnabledReactions !== null && rawEnabledReactions.length > 0) {
+            nextEnabledReactions = this.parseEnabledReactions(rawEnabledReactions);
           }
         }
       } catch (_) {
@@ -508,12 +763,16 @@ export class PreloadedDataService {
 
     const prevBase: string | null = this.longPollingBaseUrl;
     const prevKey: string | null = this.sharedSessionKey;
+    const prevEnabledReactions: string[] | null = this.enabledReactions;
 
     if (nextBase !== null) {
       this.longPollingBaseUrl = nextBase;
     }
     if (nextShared !== null && nextShared.length > 0) {
       this.sharedSessionKey = nextShared;
+    }
+    if (nextEnabledReactions !== null && nextEnabledReactions.length > 0) {
+      this.enabledReactions = nextEnabledReactions;
     }
 
     // configure()：即使只拿到其中一个字段，也可提高成功率（另一项可由缓存/后续刷新补齐）
@@ -533,6 +792,7 @@ export class PreloadedDataService {
         hilog.warn(0x0000, TAG, 'Cache sharedSessionKey failed: %{public}s', JSON.stringify(err));
       });
     }
+    this.persistEnabledReactionsIfChanged(prevEnabledReactions);
 
     if (AppConstants.DEBUG_TRACKING) {
       const baseChanged: boolean = nextBase !== null && nextBase !== prevBase;
@@ -570,7 +830,11 @@ export class PreloadedDataService {
     }
 
     // data-discourse-setup（CDN / S3 CDN）
+    const prevCdn: string | null = this.cdnUrl;
+    const prevS3Cdn: string | null = this.s3CdnUrl;
+    const prevS3Base: string | null = this.s3BaseUrl;
     this.extractCdnConfigFromHtml(html);
+    this.persistImageHostConfigIfChanged(prevCdn, prevS3Cdn, prevS3Base);
     this.extractTurnstileSitekeyFromHtml(html);
 
     // shared_session_key（跨域 MessageBus）
@@ -596,7 +860,9 @@ export class PreloadedDataService {
       return;
     }
 
-    // siteSettings.long_polling_base_url
+    const prevEnabledReactions: string[] | null = this.enabledReactions;
+
+    // siteSettings.long_polling_base_url / discourse_reactions_enabled_reactions
     const siteSettingsRaw = outer['siteSettings'];
     const siteSettingsObj: Object | null = siteSettingsRaw !== undefined && siteSettingsRaw !== null
       ? this.parseMaybeJson(siteSettingsRaw)
@@ -610,6 +876,10 @@ export class PreloadedDataService {
           this.longPollingBaseUrl = normalized;
           hilog.info(0x0000, TAG, 'longPollingBaseUrl=%{public}s', normalized);
         }
+      }
+      const nextEnabledReactions: string[] | null = this.extractEnabledReactionsFromSiteSettings(siteSettings);
+      if (nextEnabledReactions !== null && nextEnabledReactions.length > 0) {
+        this.enabledReactions = nextEnabledReactions;
       }
     }
 
@@ -670,6 +940,7 @@ export class PreloadedDataService {
         hilog.warn(0x0000, TAG, 'Cache sharedSessionKey failed: %{public}s', JSON.stringify(err));
       });
     }
+    this.persistEnabledReactionsIfChanged(prevEnabledReactions);
     CfClearanceRefreshService.getInstance().startIfPossible();
   }
 }

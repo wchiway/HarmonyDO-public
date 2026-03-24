@@ -28,6 +28,24 @@ struct BadgeIconOrb {
     return BadgeIconResolver.getBadgeSymbol(this.badge);
   }
 
+  private getOrbBackgroundColor(): string {
+    if (!WindowManager.isDarkMode()) {
+      return ThemeManager.hexWithAlpha('#FFFFFF', 0.92);
+    }
+    return ThemeManager.hexWithAlpha(this.tintColor, 0.18);
+  }
+
+  private getOrbBorderColor(): string {
+    return ThemeManager.hexWithAlpha(this.tintColor, WindowManager.isDarkMode() ? 0.30 : 0.10);
+  }
+
+  private getOrbShadowColor(): string {
+    if (WindowManager.isDarkMode()) {
+      return '#00000000';
+    }
+    return ThemeManager.hexWithAlpha(this.tintColor, 0.20);
+  }
+
   build() {
     Row() {
       if (this.getResolvedImageUrl().length > 0 && !this.imageFailed) {
@@ -47,10 +65,11 @@ struct BadgeIconOrb {
     .width(48)
     .height(48)
     .borderRadius(24)
-    .backgroundColor(ThemeManager.hexWithAlpha('#FFFFFF', 0.92))
+    .backgroundColor(this.getOrbBackgroundColor())
+    .border({ width: 1, color: this.getOrbBorderColor() })
     .justifyContent(FlexAlign.Center)
     .alignItems(VerticalAlign.Center)
-    .shadow({ radius: 10, color: ThemeManager.hexWithAlpha(this.tintColor, 0.2), offsetX: 0, offsetY: 4 })
+    .shadow({ radius: 10, color: this.getOrbShadowColor(), offsetX: 0, offsetY: 4 })
   }
 }
 

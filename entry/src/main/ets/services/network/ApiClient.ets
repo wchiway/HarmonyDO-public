@@ -1,5 +1,5 @@
 import { hilog } from '@kit.PerformanceAnalysisKit';
-import { CfGuardOptions, HttpClient, HttpMultipartFilePart } from './HttpClient';
+import { CfGuardOptions, HttpClient, HttpMultipartFilePart, HttpTextResponse } from './HttpClient';
 import { ApiConstants } from '../../common/constants/ApiConstants';
 import { AppConstants } from '../../common/constants/AppConstants';
 import { Topic, TopicListResponse, Tag } from '../../models/Topic';
@@ -10,7 +10,7 @@ import { SearchResult } from '../../models/SearchResult';
 import { Draft, DraftData, DraftListResponse } from '../../models/Draft';
 import { Badge, BadgeDetailResponse, UserBadgeListResponse } from '../../models/Badge';
 import { NotificationListResponse } from '../../models/Notification';
-import { Poll, Post } from '../../models/Post';
+import { Poll, Post, PostReactionState } from '../../models/Post';
 import { UserActionResponse, UserReactionsResponse } from '../../models/UserAction';
 import { Emoji } from '../../models/Emoji';
 import { UploadedImage } from '../../models/UploadedImage';
@@ -67,6 +67,7 @@ const MOCK_TITLES: string[] = [
 export class ApiClient {
   private http: HttpClient;
   private static instance: ApiClient | null = null;
+  private static readonly LIKE_POST_ACTION_TYPE_ID: number = 2;
 
   // 会话内缓存：避免多页面重复拉取 site.json
   private siteInfoCache: SiteResponse | null = null;
@@ -108,6 +109,25 @@ export class ApiClient {
     } catch (_) {
     }
     return 'Unknown error';
+  }
+
+  static extractRetryAfterSeconds(err: Object, fallbackSeconds: number = 0): number {
+    const text: string = ApiClient.formatError(err);
+    const patterns: RegExp[] = [
+      /retry[_ -]?after\s*[=:]\s*(\d+)/i,
+      /retry[_ -]?after\s+(\d+)/i,
+      /wait[_ -]?seconds\s*[=:]\s*(\d+)/i
+    ];
+    for (let i = 0; i < patterns.length; i++) {
+      const matched: RegExpMatchArray | null = text.match(patterns[i]);
+      if (matched !== null && matched.length >= 2) {
+        const parsed: number = Number(matched[1]);
+        if (!isNaN(parsed) && parsed > 0) {
+          return Math.ceil(parsed);
+        }
+      }
+    }
+    return fallbackSeconds > 0 ? fallbackSeconds : 0;
   }
 
   private isRateLimitError(err: Object): boolean {
@@ -1593,6 +1613,126 @@ export class ApiClient {
     const raw: string = await this.http.get(path, params);
     const json: Record<string, Object> = JSON.parse(raw) as Record<string, Object>;
     return TopicListResponse.fromJson(json);
+  }
+
+  async likePost(postId: number): Promise<void> {
+    if (postId <= 0) {
+      throw new Error('无效的帖子ID');
+    }
+    if (AppConstants.USE_MOCK_DATA) {
+      return;
+    }
+    const form: Record<string, Object> = {};
+    form['id'] = postId.toString();
+    form['post_action_type_id'] = ApiClient.LIKE_POST_ACTION_TYPE_ID.toString();
+    form['flag_topic'] = 'false';
+    await this.http.postFormText(ApiConstants.POST_ACTION, form);
+  }
+
+  async unlikePost(postId: number): Promise<void> {
+    if (postId <= 0) {
+      throw new Error('无效的帖子ID');
+    }
+    if (AppConstants.USE_MOCK_DATA) {
+      return;
+    }
+    await this.http.delete(ApiConstants.postAction(postId, ApiClient.LIKE_POST_ACTION_TYPE_ID));
+  }
+
+  async toggleReaction(postId: number, reactionId: string): Promise<PostReactionState> {
+    if (postId <= 0) {
+      throw new Error('无效的帖子ID');
+    }
+    const normalizedReactionId: string = reactionId !== undefined && reactionId !== null ? reactionId.toString().trim() : '';
+    if (normalizedReactionId.length === 0) {
+      throw new Error('无效的回应类型');
+    }
+    if (AppConstants.USE_MOCK_DATA) {
+      return new PostReactionState();
+    }
+
+    const resp: HttpTextResponse = await this.http.putDetailed(ApiConstants.togglePostReaction(postId, normalizedReactionId));
+    if (resp.code < 200 || resp.code >= 300) {
+      if (resp.code === 429) {
+        const retryAfterSeconds: number = this.extractRetryAfterSecondsFromResponse(resp.header, resp.result);
+        if (retryAfterSeconds > 0) {
+          throw new Error(`HTTP 429 retry_after=${retryAfterSeconds}`);
+        }
+      }
+      throw new Error(`HTTP ${resp.code}`);
+    }
+    const raw: string = resp.result;
+    const parsed: Record<string, Object> = JSON.parse(raw) as Record<string, Object>;
+    return PostReactionState.fromJson(parsed);
+  }
+
+  private extractRetryAfterSecondsFromResponse(header: Object | null, result: string): number {
+    const headerSeconds: number = this.extractRetryAfterSecondsFromHeader(header);
+    if (headerSeconds > 0) {
+      return headerSeconds;
+    }
+    const bodySeconds: number = this.extractRetryAfterSecondsFromBody(result);
+    if (bodySeconds > 0) {
+      return bodySeconds;
+    }
+    return 0;
+  }
+
+  private extractRetryAfterSecondsFromHeader(header: Object | null): number {
+    if (header === null || header === undefined || typeof header !== 'object') {
+      return 0;
+    }
+    const source: Record<string, Object> = header as Record<string, Object>;
+    const keys: string[] = Object.keys(source);
+    for (let i = 0; i < keys.length; i++) {
+      const key: string = keys[i].toLowerCase();
+      if (key !== 'retry-after' && key !== 'retry_after') {
+        continue;
+      }
+      const rawVal: Object = source[keys[i]];
+      const text: string = rawVal !== undefined && rawVal !== null ? rawVal.toString().trim() : '';
+      const matched: RegExpMatchArray | null = text.match(/(\d+)/);
+      if (matched !== null && matched.length >= 2) {
+        const parsed: number = Number(matched[1]);
+        if (!isNaN(parsed) && parsed > 0) {
+          return Math.ceil(parsed);
+        }
+      }
+    }
+    return 0;
+  }
+
+  private extractRetryAfterSecondsFromBody(result: string): number {
+    const text: string = result !== undefined && result !== null ? result.toString().trim() : '';
+    if (text.length === 0) {
+      return 0;
+    }
+    try {
+      const parsed: Object = JSON.parse(text) as Object;
+      if (parsed !== null && typeof parsed === 'object') {
+        const json: Record<string, Object> = parsed as Record<string, Object>;
+        const retryAfterVal = json['retry_after'];
+        if (retryAfterVal !== undefined && retryAfterVal !== null) {
+          const retryAfter: number = Number(retryAfterVal.toString());
+          if (!isNaN(retryAfter) && retryAfter > 0) {
+            return Math.ceil(retryAfter);
+          }
+        }
+        const extrasVal = json['extras'];
+        if (extrasVal !== undefined && extrasVal !== null && typeof extrasVal === 'object') {
+          const extras: Record<string, Object> = extrasVal as Record<string, Object>;
+          const waitSecondsVal = extras['wait_seconds'];
+          if (waitSecondsVal !== undefined && waitSecondsVal !== null) {
+            const waitSeconds: number = Number(waitSecondsVal.toString());
+            if (!isNaN(waitSeconds) && waitSeconds > 0) {
+              return Math.ceil(waitSeconds);
+            }
+          }
+        }
+      }
+    } catch (_) {
+    }
+    return 0;
   }
 
   async bookmarkTopic(topicId: number, name: string | null = null, reminderAt: Date | null = null): Promise<number> {

@@ -5,6 +5,7 @@ import { UserStatusEmoji } from '../components/UserStatusEmoji';
 import { PostRichContent } from '../components/PostRichContent';
 import { RouterManager, RouteConstants } from '../../common/utils/RouterManager';
 import { WindowManager } from '../../common/utils/WindowManager';
+import { ThemeManager } from '../../common/theme/ThemeManager';
 import { AnimatedGradientBackground } from '../components/AnimatedGradientBackground';
 import { HdsNavDestination } from '@kit.UIDesignKit';
 import { ApiClient } from '../../services/network/ApiClient';
@@ -656,22 +657,6 @@ export struct UserProfilePage {
     return '#3366CC';
   }
 
-  private hexWithAlpha(hex: string, alpha: number): string {
-    let colorHex: string = hex;
-    if (colorHex.startsWith('#')) {
-      colorHex = colorHex.substring(1);
-    }
-    const a: number = Math.max(0, Math.min(1, alpha));
-    const alphaHex: string = Math.round(a * 255).toString(16).padStart(2, '0');
-    if (colorHex.length === 6) {
-      return `#${alphaHex}${colorHex}`;
-    }
-    if (colorHex.length === 8) {
-      return `#${alphaHex}${colorHex.substring(2)}`;
-    }
-    return `#${alphaHex}3366CC`;
-  }
-
   private getSummaryUserDisplayName(user: SummaryUserWithCount): string {
     if (user.name !== null && (user.name as string).trim().length > 0) {
       return (user.name as string).trim();
@@ -694,11 +679,120 @@ export struct UserProfilePage {
   }
 
   private getBadgeBackgroundColor(badge: Badge): string {
-    return this.hexWithAlpha(this.getBadgeAccentColor(badge), 0.1);
+    return ThemeManager.hexWithAlpha(this.getBadgeAccentColor(badge), 0.1);
   }
 
   private getBadgeBorderColor(badge: Badge): string {
-    return this.hexWithAlpha(this.getBadgeAccentColor(badge), 0.28);
+    return ThemeManager.hexWithAlpha(this.getBadgeAccentColor(badge), 0.28);
+  }
+
+  private getProfileHeaderAccentColor(): string {
+    return WindowManager.isDarkMode() ? '#4DB8FF' : '#0088CC';
+  }
+
+  private getHeaderAvatarBackground(): string {
+    return WindowManager.isDarkMode() ? '#2A313A' : '#E8EAF0';
+  }
+
+  private getHeaderGlassSurface(alphaDark: number, alphaLight: number): string {
+    return ThemeManager.hexWithAlpha('#FFFFFF', WindowManager.isDarkMode() ? alphaDark : alphaLight);
+  }
+
+  private getHeaderCardBackground(): string {
+    return this.getHeaderGlassSurface(0.12, 0.14);
+  }
+
+  private getHeaderCardBorderColor(): string {
+    return this.getHeaderGlassSurface(0.20, 0.24);
+  }
+
+  private getHeaderChipBackground(): string {
+    return this.getHeaderGlassSurface(0.16, 0.18);
+  }
+
+  private getHeaderChipBorderColor(): string {
+    return this.getHeaderGlassSurface(0.22, 0.26);
+  }
+
+  private getFollowButtonBackground(): string {
+    if (this.isFollowed) {
+      return this.getHeaderGlassSurface(0.12, 0.16);
+    }
+    return this.getHeaderGlassSurface(0.18, 0.22);
+  }
+
+  private getFollowButtonBorderColor(): string {
+    if (this.isFollowed) {
+      return this.getHeaderGlassSurface(0.24, 0.30);
+    }
+    return this.getHeaderGlassSurface(0.40, 0.52);
+  }
+
+  private getFollowButtonTextColor(): string {
+    return '#FFFFFF';
+  }
+
+  private getFollowButtonShadowColor(): string {
+    return '#00000000';
+  }
+
+  private getFollowButtonHeight(): number {
+    return 38;
+  }
+
+  private getFollowButtonRadius(): number {
+    return this.getFollowButtonHeight() / 2;
+  }
+
+  private getFollowButtonWidth(): number {
+    if (this.isFollowLoading) {
+      return 108;
+    }
+    return this.isFollowed ? 96 : 92;
+  }
+
+  private getContentCardBackground(): string {
+    return WindowManager.isDarkMode() ? '#1E1E1E' : '#F7F8FC';
+  }
+
+  private getContentCardBorderColor(): string {
+    return WindowManager.isDarkMode() ? '#2A2A2A' : '#EEF1F6';
+  }
+
+  private getContentCardShadowColor(): string {
+    return WindowManager.isDarkMode() ? '#00000000' : '#10000000';
+  }
+
+  private getSummaryCountBadgeBackground(): string {
+    return ThemeManager.hexWithAlpha(this.getProfileHeaderAccentColor(), WindowManager.isDarkMode() ? 0.22 : 0.12);
+  }
+
+  private getSummaryCountBadgeTextColor(): string {
+    return WindowManager.isDarkMode() ? '#9BD7FF' : '#31598F';
+  }
+
+  private getSheetHandleColor(): string {
+    return WindowManager.isDarkMode() ? '#33FFFFFF' : '#D9DDE5';
+  }
+
+  private getUserInfoIconBackground(): string {
+    return WindowManager.isDarkMode() ? '#262A31' : '#F2F5F8';
+  }
+
+  private getUserInfoRowBackground(): string {
+    return WindowManager.isDarkMode() ? '#20242A' : '#FAFBFC';
+  }
+
+  private getUserInfoRowBorderColor(): string {
+    return WindowManager.isDarkMode() ? '#2C313A' : '#EDF1F5';
+  }
+
+  private getAlertCardBackground(accentColor: string): string {
+    return ThemeManager.hexWithAlpha(accentColor, WindowManager.isDarkMode() ? 0.16 : 0.08);
+  }
+
+  private getAlertCardBorderColor(accentColor: string): string {
+    return ThemeManager.hexWithAlpha(accentColor, WindowManager.isDarkMode() ? 0.34 : 0.18);
   }
 
   private getCompactCountText(count: number): string {
@@ -859,7 +953,7 @@ export struct UserProfilePage {
               avatarSize: 32,
               avatarRadius: 16,
               fallbackText: this.getTargetUsername().length > 0 ? this.getTargetUsername() : 'U',
-              bgColor: '#2A2E39',
+              bgColor: this.getHeaderAvatarBackground(),
               flairUrl: this.getProfileFlairUrl(),
               flairName: this.getProfileFlairName(),
               flairBgColor: this.getProfileFlairBgColor(),
@@ -1099,9 +1193,9 @@ export struct UserProfilePage {
       }
     }
     .width(220)
-    .backgroundColor('#2A2E39')
+    .backgroundColor($r('app.color.surface'))
     .borderRadius(12)
-    .shadow({ radius: 10, color: '#22000000', offsetX: 0, offsetY: 6 })
+    .shadow({ radius: 10, color: WindowManager.isDarkMode() ? '#00000000' : '#22000000', offsetX: 0, offsetY: 6 })
   }
 
   @Builder
@@ -1110,11 +1204,11 @@ export struct UserProfilePage {
       Row() {
         SymbolGlyph(icon)
           .fontSize(16)
-          .fontColor([Color.White])
+          .fontColor([$r('app.color.on_surface')])
           .margin({ right: 10 })
         Text(label)
           .fontSize(14)
-          .fontColor(Color.White)
+          .fontColor($r('app.color.on_surface'))
       }
       .width('100%')
       .padding({ left: 12, right: 12 })
@@ -1140,7 +1234,7 @@ export struct UserProfilePage {
           avatarSize: HEADER_AVATAR_SIZE,
           avatarRadius: HEADER_AVATAR_SIZE / 2,
           fallbackText: this.getTargetUsername().length > 0 ? this.getTargetUsername() : 'U',
-          bgColor: '#2A2E39',
+          bgColor: this.getHeaderAvatarBackground(),
           flairUrl: this.getProfileFlairUrl(),
           flairName: this.getProfileFlairName(),
           flairBgColor: this.getProfileFlairBgColor(),
@@ -1185,7 +1279,8 @@ export struct UserProfilePage {
                 .fontWeight(FontWeight.Bold)
                 .fontColor(Color.White)
                 .padding({ left: 10, right: 10, top: 4, bottom: 4 })
-                .backgroundColor('#33FFFFFF')
+                .backgroundColor(this.getHeaderChipBackground())
+                .border({ width: 1, color: this.getHeaderChipBorderColor() })
                 .borderRadius(12)
             }
           }
@@ -1198,21 +1293,25 @@ export struct UserProfilePage {
           Button() {
             Row() {
               SymbolGlyph(this.isFollowed ? $r('sys.symbol.checkmark') : $r('sys.symbol.plus'))
-                .fontSize(14)
-                .fontColor([this.isFollowed ? Color.White : Color.Black])
-                .margin({ right: 4 })
+                .fontSize(15)
+                .fontColor([this.getFollowButtonTextColor()])
+                .margin({ right: 5 })
               Text(this.isFollowLoading ? '处理中...' : (this.isFollowed ? '已关注' : '关注'))
-                .fontSize(13)
+                .fontSize(14)
                 .fontWeight(FontWeight.Bold)
-                .fontColor(this.isFollowed ? Color.White : Color.Black)
+                .fontColor(this.getFollowButtonTextColor())
             }
+            .justifyContent(FlexAlign.Center)
             .alignItems(VerticalAlign.Center)
           }
           .type(ButtonType.Capsule)
-          .height(34)
+          .width(this.getFollowButtonWidth())
+          .height(this.getFollowButtonHeight())
           .enabled(!this.isFollowLoading)
-          .backgroundColor(this.isFollowed ? '#26FFFFFF' : Color.White)
-          .borderRadius(17)
+          .backgroundColor(this.getFollowButtonBackground())
+          .border({ width: 1, color: this.getFollowButtonBorderColor() })
+          .borderRadius(this.getFollowButtonRadius())
+          .shadow({ radius: this.isFollowed ? 0 : 10, color: this.getFollowButtonShadowColor(), offsetX: 0, offsetY: 4 })
           .onClick(() => {
             this.toggleFollow().catch((_: Object) => {
             });
@@ -1246,7 +1345,8 @@ export struct UserProfilePage {
         .width('100%')
         .padding({ left: 12, right: 12, top: 14, bottom: 14 })
         .margin({ top: 14 })
-        .backgroundColor('#1AFFFFFF')
+        .backgroundColor(this.getHeaderCardBackground())
+        .border({ width: 1, color: this.getHeaderCardBorderColor() })
         .borderRadius(10)
         .alignItems(VerticalAlign.Center)
         .onClick(() => {
@@ -1300,7 +1400,8 @@ export struct UserProfilePage {
             .fontColor('#B3FFFFFF')
         }
         .padding({ left: 10, right: 10, top: 4, bottom: 4 })
-        .backgroundColor('#26FFFFFF')
+        .backgroundColor(this.getHeaderChipBackground())
+        .border({ width: 1, color: this.getHeaderChipBorderColor() })
         .borderRadius(12)
         .margin({ top: 12 })
         .alignItems(VerticalAlign.Center)
@@ -1355,7 +1456,8 @@ export struct UserProfilePage {
     .width('100%')
     .padding({ left: 12, right: 12, top: 12, bottom: 12 })
     .margin({ top: 14 })
-    .backgroundColor('#1AFFFFFF')
+    .backgroundColor(this.getHeaderCardBackground())
+    .border({ width: 1, color: this.getHeaderCardBorderColor() })
     .borderRadius(12)
     .onClick(() => {
       this.openUserInfoSheet();
@@ -2265,10 +2367,10 @@ export struct UserProfilePage {
     }
     .width('100%')
     .padding({ left: 18, right: 16, top: 14, bottom: 14 })
-    .backgroundColor('#F7F8FC')
+    .backgroundColor(this.getContentCardBackground())
     .borderRadius(18)
-    .border({ width: 1, color: '#EEF1F6' })
-    .shadow({ radius: 6, color: '#10000000', offsetX: 0, offsetY: 2 })
+    .border({ width: 1, color: this.getContentCardBorderColor() })
+    .shadow({ radius: 6, color: this.getContentCardShadowColor(), offsetX: 0, offsetY: 2 })
     .margin({ left: 16, right: 16, bottom: 10 })
     .alignItems(VerticalAlign.Center)
     .onClick(() => {
@@ -2311,10 +2413,10 @@ export struct UserProfilePage {
     }
     .width('100%')
     .padding({ left: 18, right: 16, top: 14, bottom: 14 })
-    .backgroundColor('#F7F8FC')
+    .backgroundColor(this.getContentCardBackground())
     .borderRadius(18)
-    .border({ width: 1, color: '#EEF1F6' })
-    .shadow({ radius: 6, color: '#10000000', offsetX: 0, offsetY: 2 })
+    .border({ width: 1, color: this.getContentCardBorderColor() })
+    .shadow({ radius: 6, color: this.getContentCardShadowColor(), offsetX: 0, offsetY: 2 })
     .margin({ left: 16, right: 16, bottom: 10 })
     .alignItems(VerticalAlign.Center)
     .onClick(() => {
@@ -2368,10 +2470,10 @@ export struct UserProfilePage {
     }
     .width('100%')
     .padding(18)
-    .backgroundColor('#F7F8FC')
+    .backgroundColor(this.getContentCardBackground())
     .borderRadius(18)
-    .border({ width: 1, color: '#EEF1F6' })
-    .shadow({ radius: 6, color: '#10000000', offsetX: 0, offsetY: 2 })
+    .border({ width: 1, color: this.getContentCardBorderColor() })
+    .shadow({ radius: 6, color: this.getContentCardShadowColor(), offsetX: 0, offsetY: 2 })
     .margin({ left: 16, right: 16, bottom: 12 })
     .onClick(() => {
       if (action.topicId <= 0) return;
@@ -2426,10 +2528,10 @@ export struct UserProfilePage {
     }
     .width('100%')
     .padding(18)
-    .backgroundColor('#F7F8FC')
+    .backgroundColor(this.getContentCardBackground())
     .borderRadius(18)
-    .border({ width: 1, color: '#EEF1F6' })
-    .shadow({ radius: 6, color: '#10000000', offsetX: 0, offsetY: 2 })
+    .border({ width: 1, color: this.getContentCardBorderColor() })
+    .shadow({ radius: 6, color: this.getContentCardShadowColor(), offsetX: 0, offsetY: 2 })
     .margin({ left: 16, right: 16, bottom: 12 })
     .onClick(() => {
       if (reaction.topicId <= 0) return;
@@ -2448,7 +2550,7 @@ export struct UserProfilePage {
             avatarSize: 24,
             avatarRadius: 12,
             fallbackText: u.username,
-            bgColor: '#E8EAF0'
+            bgColor: this.getHeaderAvatarBackground()
           })
           Text(this.getSummaryUserDisplayName(u))
             .fontSize(14)
@@ -2459,16 +2561,16 @@ export struct UserProfilePage {
           Text(u.count.toString())
             .fontSize(11)
             .fontWeight(FontWeight.Bold)
-            .fontColor('#31598F')
+            .fontColor(this.getSummaryCountBadgeTextColor())
             .padding({ left: 7, right: 7, top: 2, bottom: 2 })
-            .backgroundColor('#E4EEFF')
+            .backgroundColor(this.getSummaryCountBadgeBackground())
             .borderRadius(10)
             .margin({ left: 6 })
         }
         .padding({ left: 10, right: 10, top: 6, bottom: 6 })
-        .backgroundColor('#F7F8FC')
+        .backgroundColor(this.getContentCardBackground())
         .borderRadius(18)
-        .border({ width: 1, color: '#EEF1F6' })
+        .border({ width: 1, color: this.getContentCardBorderColor() })
         .margin({ right: 10, bottom: 10 })
         .alignItems(VerticalAlign.Center)
         .onClick(() => {
@@ -2509,10 +2611,10 @@ export struct UserProfilePage {
         }
         .width('100%')
         .padding({ left: 16, right: 16, top: 18, bottom: 18 })
-        .backgroundColor('#F7F8FC')
+        .backgroundColor(this.getContentCardBackground())
         .borderRadius(18)
-        .border({ width: 1, color: '#EEF1F6' })
-        .shadow({ radius: 6, color: '#10000000', offsetX: 0, offsetY: 2 })
+        .border({ width: 1, color: this.getContentCardBorderColor() })
+        .shadow({ radius: 6, color: this.getContentCardShadowColor(), offsetX: 0, offsetY: 2 })
         .margin({ bottom: 12 })
         .alignItems(VerticalAlign.Center)
       })
@@ -2566,7 +2668,7 @@ export struct UserProfilePage {
       }
       .width(34)
       .height(4)
-      .backgroundColor('#D9DDE5')
+      .backgroundColor(this.getSheetHandleColor())
       .borderRadius(2)
       .margin({ top: 12, bottom: 16 })
 
@@ -2594,8 +2696,8 @@ export struct UserProfilePage {
               '封禁状态',
               $r('sys.symbol.xmark_circle_fill'),
               '#D9485F',
-              '#FFF4F6',
-              '#F7D8DE',
+              this.getAlertCardBackground('#D9485F'),
+              this.getAlertCardBorderColor('#D9485F'),
               this.getSuspendedLabel(),
               this.getSuspendReasonText()
             )
@@ -2606,8 +2708,8 @@ export struct UserProfilePage {
               '禁言状态',
               $r('sys.symbol.exclamationmark_triangle'),
               '#E08821',
-              '#FFF8EE',
-              '#F4D7B0',
+              this.getAlertCardBackground('#E08821'),
+              this.getAlertCardBorderColor('#E08821'),
               this.getSilencedLabel(),
               this.getSilenceReasonText()
             )
@@ -2730,7 +2832,7 @@ export struct UserProfilePage {
       .height(40)
       .justifyContent(FlexAlign.Center)
       .alignItems(VerticalAlign.Center)
-      .backgroundColor('#F2F5F8')
+      .backgroundColor(this.getUserInfoIconBackground())
       .borderRadius(12)
 
       Column() {
@@ -2761,8 +2863,8 @@ export struct UserProfilePage {
     .width('100%')
     .padding({ left: 14, right: 14, top: 12, bottom: 12 })
     .alignItems(VerticalAlign.Center)
-    .backgroundColor('#FAFBFC')
-    .border({ width: 1, color: '#EDF1F5' })
+    .backgroundColor(this.getUserInfoRowBackground())
+    .border({ width: 1, color: this.getUserInfoRowBorderColor() })
     .borderRadius(16)
     .margin({ bottom: 12 })
     .onClick(() => {
