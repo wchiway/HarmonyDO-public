@@ -40,7 +40,7 @@ HarmonyDO 是为 [Linux.do](https://linux.do/) 社区打造的现代化移动客
 1. 克隆仓库
 
    ```bash
-   git clone https://github.com/Amaz1ny/HarmonyDo-public.git
+   git clone https://github.com/Amaz1ny/HarmonyDO-public.git
    ```
 
 2. 使用 DevEco Studio 打开项目根目录
