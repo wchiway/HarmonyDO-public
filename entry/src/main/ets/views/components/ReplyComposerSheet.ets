@@ -11,6 +11,8 @@ import { UrlUtils } from '../../common/utils/UrlUtils';
 import { MarkdownComposerToolbar } from './MarkdownComposerToolbar';
 import { ComposerEmojiStickerPanel } from './ComposerEmojiStickerPanel';
 import { MarkdownComposerUtils } from '../../common/utils/MarkdownComposerUtils';
+import { ComposerPreviewResourceResolver } from '../../common/utils/ComposerPreviewResourceResolver';
+import { ComposerUploadUrlCache } from '../../common/utils/ComposerUploadUrlCache';
 import { PostRichContent } from './PostRichContent';
 import { Emoji } from '../../models/Emoji';
 import { ComposerImageUploadService } from '../../common/utils/ComposerImageUploadService';
@@ -23,6 +25,7 @@ export struct ReplyComposerSheet {
   @Param replyToAvatarTemplate: string = '';
   @Param initialContent: string = '';
   @Param requestKey: string = '';
+  @Param draftKey: string = '';
   @Event onSubmitted: (post: Post) => void = (_: Post) => {
   };
   @Event onDismiss: (submitted: boolean) => void = (_: boolean) => {
@@ -41,6 +44,7 @@ export struct ReplyComposerSheet {
   @Local private contentSelectionEnd: number = 0;
   @Local private isImageUploading: boolean = false;
   @Local private imageUploadProgressLabel: string = '';
+  @Local private previewRenderVersion: number = 0;
 
   private draftSaveTimerId: number = -1;
   private submitted: boolean = false;
@@ -51,6 +55,7 @@ export struct ReplyComposerSheet {
 
   aboutToAppear(): void {
     this.resetComposerState();
+    this.hydratePreviewResources();
     this.loadSiteComposerLimits();
     this.loadDraft();
   }
@@ -58,6 +63,7 @@ export struct ReplyComposerSheet {
   @Monitor('requestKey')
   private onRequestKeyChange(): void {
     this.resetComposerState();
+    this.hydratePreviewResources();
     this.loadSiteComposerLimits();
     this.loadDraft();
   }
@@ -85,9 +91,20 @@ export struct ReplyComposerSheet {
     this.isDiscardConfirmVisible = false;
     this.isImageUploading = false;
     this.imageUploadProgressLabel = '';
+    this.previewRenderVersion = 0;
+  }
+
+  private hydratePreviewResources(): void {
+    ComposerUploadUrlCache.hydrate().then(() => {
+      this.previewRenderVersion = this.previewRenderVersion + 1;
+    }).catch(() => {
+    });
   }
 
   private getDraftKey(): string {
+    if (this.draftKey.trim().length > 0) {
+      return this.draftKey.trim();
+    }
     return Draft.replyKey(this.topicId, this.replyToPostNumber);
   }
 
@@ -109,6 +126,20 @@ export struct ReplyComposerSheet {
         this.minContentLength = SiteResponse.DEFAULT_MIN_POST_LENGTH;
       }
     }
+  }
+
+  private preparePreviewResources(): void {
+    const snapshot: string = this.content;
+    if (snapshot.trim().length === 0) {
+      return;
+    }
+    ComposerPreviewResourceResolver.ensureMarkdownResources(snapshot).then((updated: boolean) => {
+      if (!updated || snapshot !== this.content) {
+        return;
+      }
+      this.previewRenderVersion = this.previewRenderVersion + 1;
+    }).catch(() => {
+    });
   }
 
   private getToolbarHeight(): number {
@@ -164,6 +195,7 @@ export struct ReplyComposerSheet {
             this.content = draftReply;
           }
           this.syncContentSelection(this.content.length, this.content.length);
+          this.preparePreviewResources();
         }
       }
     } catch (err) {
@@ -468,6 +500,9 @@ export struct ReplyComposerSheet {
   }
 
   private buildPreviewHtml(): string {
+    if (this.previewRenderVersion < 0) {
+      return '';
+    }
     return MarkdownComposerUtils.toPreviewHtml(this.content);
   }
 
@@ -736,6 +771,7 @@ export struct ReplyComposerSheet {
               } catch (_) {
               }
               this.closeEmojiPanel();
+              this.preparePreviewResources();
             }
           }
         })

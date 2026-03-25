@@ -177,6 +177,47 @@ export class Draft {
     return reply.length > 0 || title.length > 0;
   }
 
+  private get normalizedAction(): string {
+    return this.data.action !== null ? (this.data.action as string).trim().toLowerCase() : '';
+  }
+
+  private get normalizedArchetypeId(): string {
+    return this.data.archetypeId !== null ? (this.data.archetypeId as string).trim().toLowerCase() : '';
+  }
+
+  get isPrivateMessageDraft(): boolean {
+    if (this.draftKey === Draft.newPrivateMessageKey) {
+      return true;
+    }
+    if (this.normalizedAction === 'privatemessage' || this.normalizedArchetypeId === 'private_message') {
+      return true;
+    }
+    return this.data.recipients !== null && (this.data.recipients as string[]).length > 0;
+  }
+
+  get isTopicComposerDraft(): boolean {
+    if (this.draftKey === Draft.newTopicKey || this.normalizedAction === 'createtopic') {
+      return true;
+    }
+    if (this.isPrivateMessageDraft) {
+      return false;
+    }
+    if (this.topicId !== null && (this.topicId as number) > 0) {
+      return false;
+    }
+    return this.data.title !== null && (this.data.title as string).trim().length > 0;
+  }
+
+  get isReplyDraft(): boolean {
+    if (this.isPrivateMessageDraft || this.isTopicComposerDraft) {
+      return false;
+    }
+    if (this.normalizedAction === 'reply') {
+      return true;
+    }
+    return this.topicId !== null && (this.topicId as number) > 0;
+  }
+
   get displayTitle(): string {
     if (this.title !== null && (this.title as string).trim().length > 0) {
       return (this.title as string).trim();
@@ -184,14 +225,14 @@ export class Draft {
     if (this.data.title !== null && (this.data.title as string).trim().length > 0) {
       return (this.data.title as string).trim();
     }
-    if (this.draftKey.startsWith('topic_')) {
+    if (this.isReplyDraft && this.topicId !== null) {
       const topicId: number | null = this.topicId;
       return topicId !== null ? `话题 #${topicId}` : '话题回复草稿';
     }
-    if (this.draftKey === Draft.newPrivateMessageKey) {
+    if (this.isPrivateMessageDraft) {
       return '新的私信';
     }
-    if (this.draftKey === Draft.newTopicKey) {
+    if (this.isTopicComposerDraft) {
       return '新的话题';
     }
     return '无标题草稿';
@@ -212,6 +253,13 @@ export class Draft {
     const raw: string = this.draftKey.substring(start + 6);
     const parsed: number = Number(raw);
     return isNaN(parsed) ? null : parsed;
+  }
+
+  get replyToPostNumber(): number | null {
+    if (this.data.replyToPostNumber !== null && (this.data.replyToPostNumber as number) > 0) {
+      return this.data.replyToPostNumber as number;
+    }
+    return this.replyToPostNumberFromKey;
   }
 
   getAvatarUrl(size: number = 96): string {

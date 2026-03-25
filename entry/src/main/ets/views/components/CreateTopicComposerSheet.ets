@@ -10,6 +10,8 @@ import { CategoryIcon } from './CategoryIcon';
 import { MarkdownComposerToolbar } from './MarkdownComposerToolbar';
 import { ComposerEmojiStickerPanel } from './ComposerEmojiStickerPanel';
 import { MarkdownComposerUtils } from '../../common/utils/MarkdownComposerUtils';
+import { ComposerPreviewResourceResolver } from '../../common/utils/ComposerPreviewResourceResolver';
+import { ComposerUploadUrlCache } from '../../common/utils/ComposerUploadUrlCache';
 import { PostRichContent } from './PostRichContent';
 import { Emoji } from '../../models/Emoji';
 import { ComposerImageUploadService } from '../../common/utils/ComposerImageUploadService';
@@ -17,6 +19,7 @@ import { ComposerImageUploadService } from '../../common/utils/ComposerImageUplo
 @ComponentV2
 export struct CreateTopicComposerSheet {
   @Param requestKey: string = '';
+  @Param draftKey: string = '';
   @Param initialCategoryId: number = 0;
   @Param initialTags: string[] = [];
   @Param openedFromDrafts: boolean = false;
@@ -49,6 +52,7 @@ export struct CreateTopicComposerSheet {
   @Local private contentSelectionEnd: number = 0;
   @Local private isImageUploading: boolean = false;
   @Local private imageUploadProgressLabel: string = '';
+  @Local private previewRenderVersion: number = 0;
 
   private draftSaveTimerId: number = -1;
   private submitted: boolean = false;
@@ -59,12 +63,14 @@ export struct CreateTopicComposerSheet {
 
   aboutToAppear(): void {
     this.resetComposerState();
+    this.hydratePreviewResources();
     this.loadContextAndDraft();
   }
 
   @Monitor('requestKey')
   private onRequestKeyChange(): void {
     this.resetComposerState();
+    this.hydratePreviewResources();
     this.loadContextAndDraft();
   }
 
@@ -102,9 +108,20 @@ export struct CreateTopicComposerSheet {
     this.contentSelectionEnd = 0;
     this.isImageUploading = false;
     this.imageUploadProgressLabel = '';
+    this.previewRenderVersion = 0;
+  }
+
+  private hydratePreviewResources(): void {
+    ComposerUploadUrlCache.hydrate().then(() => {
+      this.previewRenderVersion = this.previewRenderVersion + 1;
+    }).catch(() => {
+    });
   }
 
   private getDraftKey(): string {
+    if (this.draftKey.trim().length > 0) {
+      return this.draftKey.trim();
+    }
     return Draft.newTopicKey;
   }
 
@@ -237,6 +254,21 @@ export struct CreateTopicComposerSheet {
       this.selectedCategoryId = draft.data.categoryId as number;
     }
     this.errorMessage = '';
+    this.preparePreviewResources();
+  }
+
+  private preparePreviewResources(): void {
+    const snapshot: string = this.content;
+    if (snapshot.trim().length === 0) {
+      return;
+    }
+    ComposerPreviewResourceResolver.ensureMarkdownResources(snapshot).then((updated: boolean) => {
+      if (!updated || snapshot !== this.content) {
+        return;
+      }
+      this.previewRenderVersion = this.previewRenderVersion + 1;
+    }).catch(() => {
+    });
   }
 
   private async loadContextAndDraft(): Promise<void> {
@@ -649,6 +681,9 @@ export struct CreateTopicComposerSheet {
   }
 
   private buildPreviewHtml(): string {
+    if (this.previewRenderVersion < 0) {
+      return '';
+    }
     return MarkdownComposerUtils.toPreviewHtml(this.content);
   }
 
@@ -1165,6 +1200,7 @@ export struct CreateTopicComposerSheet {
             if (this.isPreview) {
               this.stopInputEditing();
               this.closeEmojiPanel();
+              this.preparePreviewResources();
             }
           }
         })

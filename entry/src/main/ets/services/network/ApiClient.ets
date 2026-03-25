@@ -16,6 +16,7 @@ import { UploadedImage } from '../../models/UploadedImage';
 import { PreloadedDataService } from '../messagebus/PreloadedDataService';
 import { MessageBusService } from '../messagebus/MessageBusService';
 import { EmojiResolver } from '../../common/utils/EmojiResolver';
+import { ComposerPreviewOneboxCache } from '../../common/utils/ComposerPreviewOneboxCache';
 import { ComposerUploadUrlCache } from '../../common/utils/ComposerUploadUrlCache';
 
 const TAG: string = 'ApiClient';
@@ -725,6 +726,66 @@ export class ApiClient {
       }
       throw new Error(message.length > 0 ? message : '图片上传失败');
     }
+  }
+
+  async lookupComposerUploadUrls(shortUrls: string[]): Promise<UploadedImage[]> {
+    const normalized: string[] = [];
+    for (let i: number = 0; i < shortUrls.length; i++) {
+      const url: string = shortUrls[i] !== undefined && shortUrls[i] !== null ? shortUrls[i].trim() : '';
+      if (!url.startsWith('upload://') || normalized.indexOf(url) >= 0) {
+        continue;
+      }
+      normalized.push(url);
+    }
+    if (normalized.length === 0) {
+      return [];
+    }
+
+    const form: Record<string, Object> = {};
+    form['short_urls[]'] = normalized;
+    const extraHeaders: Record<string, string> = {
+      'Accept': 'application/json, text/javascript, */*; q=0.01',
+      'X-Requested-With': 'XMLHttpRequest'
+    };
+    const rawText: string = await this.http.postFormText(
+      ApiConstants.UPLOADS_LOOKUP_URLS,
+      form,
+      extraHeaders
+    );
+    const parsed: Object = JSON.parse(rawText) as Object;
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+
+    const out: UploadedImage[] = [];
+    const arr: Object[] = parsed as Object[];
+    for (let i: number = 0; i < arr.length; i++) {
+      const item: Object = arr[i];
+      if (item === null || item === undefined || typeof item !== 'object') {
+        continue;
+      }
+      const uploaded: UploadedImage = UploadedImage.fromJson(item as Record<string, Object>);
+      if (uploaded.shortUrl.trim().length > 0 && uploaded.url.trim().length > 0) {
+        ComposerUploadUrlCache.register(uploaded.shortUrl, uploaded.url);
+      }
+      if (uploaded.hasUsableUrl()) {
+        out.push(uploaded);
+      }
+    }
+    return out;
+  }
+
+  async getComposerOneboxHtml(url: string): Promise<string> {
+    const rawUrl: string = url !== undefined && url !== null ? url.trim() : '';
+    if (rawUrl.length === 0) {
+      return '';
+    }
+    const html: string = await this.http.getText(ApiConstants.onebox(rawUrl), null, '*/*');
+    const normalized: string = html.trim();
+    if (normalized.length > 0) {
+      ComposerPreviewOneboxCache.register(rawUrl, normalized);
+    }
+    return normalized;
   }
 
   /**

@@ -10,6 +10,7 @@ export struct PrivateMessageComposerSheet {
   @Param targetUsername: string = '';
   @Param targetAvatarUrl: string = '';
   @Param requestKey: string = '';
+  @Param draftKey: string = '';
   @Event onDismiss: (submitted: boolean) => void = (_: boolean) => {
   };
 
@@ -42,6 +43,9 @@ export struct PrivateMessageComposerSheet {
   }
 
   private getDraftKey(): string {
+    if (this.draftKey.trim().length > 0) {
+      return this.draftKey.trim();
+    }
     return Draft.newPrivateMessageKey;
   }
 

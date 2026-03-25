@@ -111,17 +111,17 @@ export struct DraftsPage {
   }
 
   private getDraftTypeLabel(draft: Draft): string {
-    if (draft.draftKey === Draft.newTopicKey) {
+    if (draft.isTopicComposerDraft) {
       return '新话题';
     }
-    if (draft.draftKey === Draft.newPrivateMessageKey) {
+    if (draft.isPrivateMessageDraft) {
       return '私信';
     }
-    const replyToPostNumber: number | null = draft.replyToPostNumberFromKey;
+    const replyToPostNumber: number | null = draft.replyToPostNumber;
     if (replyToPostNumber !== null && (replyToPostNumber as number) > 0) {
       return `回复 #${replyToPostNumber as number}`;
     }
-    if (draft.draftKey.startsWith('topic_')) {
+    if (draft.isReplyDraft) {
       return '回复';
     }
     return '草稿';
@@ -149,12 +149,7 @@ export struct DraftsPage {
   }
 
   private async openDraft(draft: Draft): Promise<void> {
-    if (draft.draftKey === Draft.newTopicKey) {
-      this.activeTopicDraft = draft;
-      this.isTopicSheetVisible = true;
-      return;
-    }
-    if (draft.draftKey === Draft.newPrivateMessageKey) {
+    if (draft.isPrivateMessageDraft) {
       const targetUsername: string = this.getPrivateMessageTarget(draft);
       if (targetUsername.length === 0) {
         ToastService.show('私信草稿数据不完整');
@@ -164,7 +159,12 @@ export struct DraftsPage {
       this.isPrivateMessageSheetVisible = true;
       return;
     }
-    if (draft.topicId !== null && (draft.topicId as number) > 0) {
+    if (draft.isTopicComposerDraft) {
+      this.activeTopicDraft = draft;
+      this.isTopicSheetVisible = true;
+      return;
+    }
+    if (draft.isReplyDraft && draft.topicId !== null && (draft.topicId as number) > 0) {
       this.activeReplyDraft = draft;
       this.isReplySheetVisible = true;
       return;
@@ -599,10 +599,11 @@ export struct DraftsPage {
     if (this.activeReplyDraft !== null && (this.activeReplyDraft as Draft).topicId !== null) {
       ReplyComposerSheet({
         topicId: (this.activeReplyDraft as Draft).topicId as number,
-        replyToPostNumber: (this.activeReplyDraft as Draft).replyToPostNumberFromKey !== null
-          ? (this.activeReplyDraft as Draft).replyToPostNumberFromKey as number
+        replyToPostNumber: (this.activeReplyDraft as Draft).replyToPostNumber !== null
+          ? (this.activeReplyDraft as Draft).replyToPostNumber as number
           : 0,
         requestKey: (this.activeReplyDraft as Draft).draftKey,
+        draftKey: (this.activeReplyDraft as Draft).draftKey,
         onDismiss: (submitted: boolean) => {
           this.handleReplySheetDismiss(submitted);
         }
@@ -617,6 +618,7 @@ export struct DraftsPage {
         targetUsername: this.getPrivateMessageTarget(this.activePrivateMessageDraft as Draft),
         targetAvatarUrl: (this.activePrivateMessageDraft as Draft).getAvatarUrl(96),
         requestKey: (this.activePrivateMessageDraft as Draft).draftKey,
+        draftKey: (this.activePrivateMessageDraft as Draft).draftKey,
         onDismiss: (submitted: boolean) => {
           this.handlePrivateMessageSheetDismiss(submitted);
         }
@@ -629,6 +631,7 @@ export struct DraftsPage {
     if (this.activeTopicDraft !== null) {
       CreateTopicComposerSheet({
         requestKey: (this.activeTopicDraft as Draft).draftKey,
+        draftKey: (this.activeTopicDraft as Draft).draftKey,
         initialCategoryId: (this.activeTopicDraft as Draft).data.categoryId !== null
           ? ((this.activeTopicDraft as Draft).data.categoryId as number)
           : 0,

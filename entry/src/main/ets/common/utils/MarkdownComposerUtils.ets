@@ -1,4 +1,5 @@
 import { EmojiResolver } from './EmojiResolver';
+import { ComposerPreviewOneboxCache } from './ComposerPreviewOneboxCache';
 import { ComposerUploadUrlCache } from './ComposerUploadUrlCache';
 
 function escapeHtmlText(text: string): string {
@@ -63,6 +64,17 @@ class MarkdownPreviewImage {
   url: string = '';
   width: number = 0;
   height: number = 0;
+}
+
+class MarkdownPreviewCallout {
+  type: string = '';
+  title: string = '';
+}
+
+class MarkdownPreviewLinkCard {
+  url: string = '';
+  title: string = '';
+  description: string = '';
 }
 
 export class MarkdownComposerUtils {
@@ -319,15 +331,172 @@ export class MarkdownComposerUtils {
     return next;
   }
 
-  private static sanitizeUrl(url: string): string {
+  private static resolvePreviewUrl(url: string): string {
     const raw: string = ComposerUploadUrlCache.resolve(url);
     if (raw.length === 0) {
       return '';
     }
     if (raw.startsWith('http://') || raw.startsWith('https://') || raw.startsWith('/')) {
-      return escapeHtmlText(raw);
+      return raw;
     }
     return '';
+  }
+
+  private static sanitizeUrl(url: string): string {
+    const resolved: string = MarkdownComposerUtils.resolvePreviewUrl(url);
+    return resolved.length > 0 ? escapeHtmlText(resolved) : '';
+  }
+
+  private static extractUrlHost(url: string): string {
+    const raw: string = MarkdownComposerUtils.resolvePreviewUrl(url);
+    if (raw.length === 0) {
+      return '';
+    }
+    if (raw.startsWith('/')) {
+      return raw;
+    }
+    const withoutScheme: string = raw.replace(/^https?:\/\//i, '');
+    const slashIndex: number = withoutScheme.indexOf('/');
+    const host: string = slashIndex >= 0 ? withoutScheme.substring(0, slashIndex) : withoutScheme;
+    return host.startsWith('www.') ? host.substring(4) : host;
+  }
+
+  private static parseCalloutHeader(line: string): MarkdownPreviewCallout | null {
+    const raw: string = line !== undefined && line !== null ? line.trim() : '';
+    const match: RegExpMatchArray | null = raw.match(/^\[!([a-z0-9_-]+)\]\s*(.*)$/i);
+    if (match === null || match.length < 2) {
+      return null;
+    }
+    const callout: MarkdownPreviewCallout = new MarkdownPreviewCallout();
+    callout.type = match[1].trim().toLowerCase();
+    callout.title = match.length > 2 ? match[2].trim() : '';
+    return callout.type.length > 0 ? callout : null;
+  }
+
+  private static getCalloutFallbackTitle(type: string): string {
+    const normalized: string = type !== undefined && type !== null ? type.trim().toLowerCase() : '';
+    if (normalized === 'success') return '提示';
+    if (normalized === 'warning') return '注意';
+    if (normalized === 'danger' || normalized === 'error') return '警告';
+    if (normalized === 'tip') return '技巧';
+    if (normalized === 'note') return '备注';
+    return '信息';
+  }
+
+  private static buildSyntheticCalloutHtml(type: string, title: string, contentMarkdown: string): string {
+    const safeType: string = escapeHtmlText(type.trim().length > 0 ? type.trim().toLowerCase() : 'info');
+    const displayTitle: string = title.trim().length > 0 ? title.trim() : MarkdownComposerUtils.getCalloutFallbackTitle(type);
+    const safeTitle: string = escapeHtmlText(displayTitle);
+    const contentHtml: string = contentMarkdown.trim().length > 0
+      ? MarkdownComposerUtils.toPreviewHtml(contentMarkdown)
+      : '<p></p>';
+    return `<blockquote class="callout" data-callout-type="${safeType}">`
+      + `<div class="callout-title"><span class="callout-title-inner">${safeTitle}</span></div>`
+      + `<div class="callout-content">${contentHtml}</div>`
+      + `</blockquote>`;
+  }
+
+  private static isCalloutBodyBoundary(line: string): boolean {
+    const raw: string = line !== undefined && line !== null ? line.trim() : '';
+    if (raw.length === 0) {
+      return true;
+    }
+    if (raw.startsWith('```')) {
+      return true;
+    }
+    if (MarkdownComposerUtils.tryBuildHeading(raw).length > 0) {
+      return true;
+    }
+    if (MarkdownComposerUtils.parseCalloutHeader(raw) !== null) {
+      return true;
+    }
+    if (raw.toLowerCase() === '[grid]') {
+      return true;
+    }
+    if (/^!\[[^\]]*\]\([^)]+\)$/.test(raw)) {
+      return true;
+    }
+    if (raw.startsWith('- ') || raw.startsWith('* ')) {
+      return true;
+    }
+    if (MarkdownComposerUtils.isOrderedLine(raw)) {
+      return true;
+    }
+    if (MarkdownComposerUtils.parseStandaloneLinkCard(raw) !== null) {
+      return true;
+    }
+    if (raw.startsWith('>')) {
+      const unquoted: string = raw.replace(/^>\s?/, '');
+      if (MarkdownComposerUtils.parseCalloutHeader(unquoted) !== null) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private static parseStandaloneMarkdownLink(line: string): MarkdownPreviewLinkCard | null {
+    const raw: string = line !== undefined && line !== null ? line.trim() : '';
+    const match: RegExpMatchArray | null = raw.match(/^\[([^\]]+)\]\(([^)]+)\)$/);
+    if (match === null || match.length < 3) {
+      return null;
+    }
+    const resolvedUrl: string = MarkdownComposerUtils.resolvePreviewUrl(match[2]);
+    if (resolvedUrl.length === 0) {
+      return null;
+    }
+    const card: MarkdownPreviewLinkCard = new MarkdownPreviewLinkCard();
+    card.url = resolvedUrl;
+    card.title = match[1].trim().length > 0 ? match[1].trim() : resolvedUrl;
+    return card;
+  }
+
+  private static parseStandaloneBareUrl(line: string): MarkdownPreviewLinkCard | null {
+    const raw: string = line !== undefined && line !== null ? line.trim() : '';
+    if (!/^https?:\/\/\S+$/i.test(raw)) {
+      return null;
+    }
+    const resolvedUrl: string = MarkdownComposerUtils.resolvePreviewUrl(raw);
+    if (resolvedUrl.length === 0) {
+      return null;
+    }
+    const card: MarkdownPreviewLinkCard = new MarkdownPreviewLinkCard();
+    card.url = resolvedUrl;
+    card.title = MarkdownComposerUtils.extractUrlHost(resolvedUrl);
+    card.description = resolvedUrl;
+    return card;
+  }
+
+  private static parseStandaloneLinkCard(line: string): MarkdownPreviewLinkCard | null {
+    const markdownLink: MarkdownPreviewLinkCard | null = MarkdownComposerUtils.parseStandaloneMarkdownLink(line);
+    if (markdownLink !== null) {
+      return markdownLink;
+    }
+    return MarkdownComposerUtils.parseStandaloneBareUrl(line);
+  }
+
+  private static buildPreviewOneboxHtml(card: MarkdownPreviewLinkCard): string {
+    const resolvedUrl: string = MarkdownComposerUtils.resolvePreviewUrl(card.url);
+    const cachedHtml: string = ComposerPreviewOneboxCache.resolve(resolvedUrl.length > 0 ? resolvedUrl : card.url);
+    if (cachedHtml.length > 0) {
+      return cachedHtml;
+    }
+    if (resolvedUrl.length === 0) {
+      return MarkdownComposerUtils.buildParagraphHtml([card.url]);
+    }
+    const safeUrl: string = escapeHtmlText(resolvedUrl);
+    const titleText: string = card.title.trim().length > 0 ? card.title.trim() : resolvedUrl;
+    const sourceText: string = MarkdownComposerUtils.extractUrlHost(resolvedUrl);
+    const descriptionText: string = card.description.trim();
+    const safeTitle: string = escapeHtmlText(titleText);
+    const safeSource: string = escapeHtmlText(sourceText.length > 0 ? sourceText : resolvedUrl);
+    const safeDescription: string = descriptionText.length > 0 ? escapeHtmlText(descriptionText) : '';
+    return `<aside class="onebox" data-onebox-src="${safeUrl}">`
+      + `<article class="onebox-body">`
+      + `<div class="source"><a href="${safeUrl}">${safeSource}</a></div>`
+      + `<h3><a href="${safeUrl}">${safeTitle}</a></h3>`
+      + (safeDescription.length > 0 ? `<p>${safeDescription}</p>` : '')
+      + `</article>`
+      + `</aside>`;
   }
 
   private static parseImageMarkdown(line: string): MarkdownPreviewImage | null {
@@ -473,6 +642,42 @@ export class MarkdownComposerUtils {
     return /^\d+\.\s+/.test(line);
   }
 
+  static collectPreviewUploadShortUrls(markdown: string): string[] {
+    const source: string = markdown !== undefined && markdown !== null ? markdown.replace(/\r/g, '') : '';
+    const urls: string[] = [];
+    const regexp: RegExp = /upload:\/\/[^\s)]+/g;
+    let matched: RegExpExecArray | null = regexp.exec(source);
+    while (matched !== null) {
+      const url: string = matched[0] !== undefined && matched[0] !== null ? matched[0].trim() : '';
+      if (url.length > 0 && urls.indexOf(url) < 0) {
+        urls.push(url);
+      }
+      matched = regexp.exec(source);
+    }
+    return urls;
+  }
+
+  static collectPreviewStandaloneUrls(markdown: string): string[] {
+    const source: string = markdown !== undefined && markdown !== null ? markdown.replace(/\r/g, '') : '';
+    const lines: string[] = source.split('\n');
+    const urls: string[] = [];
+    for (let i: number = 0; i < lines.length; i++) {
+      const line: string = lines[i] !== undefined && lines[i] !== null ? lines[i].trim() : '';
+      if (line.length === 0) {
+        continue;
+      }
+      const card: MarkdownPreviewLinkCard | null = MarkdownComposerUtils.parseStandaloneLinkCard(line);
+      if (card === null) {
+        continue;
+      }
+      const url: string = card.url !== undefined && card.url !== null ? card.url.trim() : '';
+      if (url.length > 0 && urls.indexOf(url) < 0) {
+        urls.push(url);
+      }
+    }
+    return urls;
+  }
+
   static toPreviewHtml(markdown: string): string {
     const source: string = markdown !== undefined && markdown !== null ? markdown.replace(/\r/g, '') : '';
     if (source.trim().length === 0) {
@@ -529,6 +734,33 @@ export class MarkdownComposerUtils {
       }
 
       if (trimmedLine.startsWith('>')) {
+        const quotedHeader: string = trimmedLine.replace(/^>\s?/, '');
+        const calloutHeader: MarkdownPreviewCallout | null = MarkdownComposerUtils.parseCalloutHeader(quotedHeader);
+        if (calloutHeader !== null) {
+          flushParagraph();
+          index = index + 1;
+          const contentLines: string[] = [];
+          while (index < lines.length) {
+            const nextLine: string = lines[index];
+            const nextTrimmed: string = nextLine !== undefined && nextLine !== null ? nextLine.trim() : '';
+            if (nextTrimmed.length === 0 || MarkdownComposerUtils.isCalloutBodyBoundary(nextTrimmed)) {
+              break;
+            }
+            if (nextTrimmed.startsWith('>')) {
+              contentLines.push(nextLine.replace(/^\s*>\s?/, ''));
+            } else {
+              contentLines.push(nextLine);
+            }
+            index = index + 1;
+          }
+          blocks.push(MarkdownComposerUtils.buildSyntheticCalloutHtml(
+            calloutHeader.type,
+            calloutHeader.title,
+            contentLines.join('\n')
+          ));
+          continue;
+        }
+
         flushParagraph();
         const quoteLines: string[] = [];
         while (index < lines.length) {
@@ -540,6 +772,31 @@ export class MarkdownComposerUtils {
           index = index + 1;
         }
         blocks.push(`<blockquote>${MarkdownComposerUtils.buildParagraphHtml(quoteLines)}</blockquote>`);
+        continue;
+      }
+
+      const looseCallout: MarkdownPreviewCallout | null = MarkdownComposerUtils.parseCalloutHeader(trimmedLine);
+      if (looseCallout !== null) {
+        flushParagraph();
+        const contentLines: string[] = [];
+        index = index + 1;
+        while (index < lines.length) {
+          const nextTrimmed: string = lines[index] !== undefined && lines[index] !== null ? lines[index].trim() : '';
+          if (nextTrimmed.length === 0 || MarkdownComposerUtils.isCalloutBodyBoundary(nextTrimmed)) {
+            break;
+          }
+          if (nextTrimmed.startsWith('>')) {
+            contentLines.push(lines[index].replace(/^\s*>\s?/, ''));
+          } else {
+            contentLines.push(lines[index]);
+          }
+          index = index + 1;
+        }
+        blocks.push(MarkdownComposerUtils.buildSyntheticCalloutHtml(
+          looseCallout.type,
+          looseCallout.title,
+          contentLines.join('\n')
+        ));
         continue;
       }
 
@@ -571,6 +828,14 @@ export class MarkdownComposerUtils {
           index = index + 1;
         }
         blocks.push(MarkdownComposerUtils.buildListHtml(items, true));
+        continue;
+      }
+
+      const linkCard: MarkdownPreviewLinkCard | null = MarkdownComposerUtils.parseStandaloneLinkCard(trimmedLine);
+      if (linkCard !== null) {
+        flushParagraph();
+        blocks.push(MarkdownComposerUtils.buildPreviewOneboxHtml(linkCard));
+        index = index + 1;
         continue;
       }
 

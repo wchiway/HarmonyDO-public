@@ -112,6 +112,15 @@ export class ApiConstants {
   /** 上传图片 / 附件 */
   static readonly UPLOADS: string = '/uploads.json';
 
+  /** 批量解析草稿中的 upload:// 短链接 */
+  static readonly UPLOADS_LOOKUP_URLS: string = '/uploads/lookup-urls';
+
+  /** 获取链接 onebox 预览 HTML */
+  static onebox(url: string, refresh: boolean = true): string {
+    const encodedUrl: string = encodeURIComponent(url);
+    return refresh ? `/onebox?url=${encodedUrl}&refresh=true` : `/onebox?url=${encodedUrl}`;
+  }
+
   /** 获取指定草稿 */
   static draft(draftKey: string): string {
     return `/drafts/${draftKey}.json`;
