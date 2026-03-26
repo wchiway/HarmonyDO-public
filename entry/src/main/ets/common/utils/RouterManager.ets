@@ -22,6 +22,7 @@ export class RouteConstants {
   static readonly PAGE_WEB_VIEW: string = 'WebView';
   static readonly PAGE_CF_CHALLENGE: string = 'CfChallenge';
   static readonly PAGE_TRUST_LEVEL: string = 'TrustLevel';
+  static readonly PAGE_INVITE_LINKS: string = 'InviteLinks';
 }
 
 /**
@@ -252,6 +253,10 @@ export class RouterManager {
 
   static pushTrustLevel(): void {
     RouterManager.pushPath(RouteConstants.PAGE_TRUST_LEVEL);
+  }
+
+  static pushInviteLinks(): void {
+    RouterManager.pushPath(RouteConstants.PAGE_INVITE_LINKS);
   }
 
   /**
