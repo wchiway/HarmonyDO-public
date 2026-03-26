@@ -673,7 +673,7 @@ export struct ProfilePage {
   private openInviteLinks(): void {
     const username: string = this.getUsername();
     if (username.length > 0) {
-      RouterManager.pushWebView(`${AppConstants.BASE_URL}/u/${username}/invited/pending`, '邀请链接');
+      RouterManager.pushInviteLinks();
     }
   }
 

@@ -17,6 +17,7 @@ import { MyTopicsPage } from '../views/pages/MyTopicsPage';
 import { MyBadgesPage } from '../views/pages/MyBadgesPage';
 import { BrowsingHistoryPage } from '../views/pages/BrowsingHistoryPage';
 import { TrustLevelPage } from '../views/pages/TrustLevelPage';
+import { InviteLinksPage } from '../views/pages/InviteLinksPage';
 import { CfRefreshHost } from '../views/components/CfRefreshHost';
 import { ReadLaterBubble } from '../views/components/ReadLaterBubble';
 import { Topic } from '../models/Topic';
@@ -335,6 +336,8 @@ struct Index {
       CfChallengePage()
     } else if (name === RouteConstants.PAGE_TRUST_LEVEL) {
       TrustLevelPage()
+    } else if (name === RouteConstants.PAGE_INVITE_LINKS) {
+      InviteLinksPage()
     }
   }
 
