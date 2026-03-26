@@ -26,7 +26,7 @@ HarmonyDO 是为 [Linux.do](https://linux.do/) 社区打造的现代化移动客
 
 ## 安装方式
 
-> 目前仅支持通过 **DevEco Studio（Dev Studio）编译安装**，暂不提供预编译 HAP、应用商店分发包或一键安装脚本。
+> 目前支持通过 **DevEco Studio（Dev Studio）编译安装**，提供预编译 HAP 可自行安装。
 
 ### 环境要求
 
