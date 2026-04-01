@@ -492,16 +492,26 @@ export class ApiClient {
     id: number,
     postNumber: number = 0,
     filter: string = '',
-    usernameFilters: string = ''
+    usernameFilters: string = '',
+    trackVisit: boolean = false
   ): Promise<string> {
     const params: Record<string, Object> = {};
     const f: string = filter.trim();
     const uf: string = usernameFilters.trim();
     if (f.length > 0) params['filter'] = f;
     if (uf.length > 0) params['username_filters'] = uf;
+    if (trackVisit) params['track_visit'] = 'true';
 
     const path: string = ApiConstants.topicDetail(id, postNumber > 0 ? postNumber : 0);
-    return await this.http.get(path, Object.keys(params).length > 0 ? params : null);
+
+    let extraHeaders: Record<string, string> | null = null;
+    if (trackVisit) {
+      extraHeaders = {} as Record<string, string>;
+      extraHeaders['Discourse-Track-View'] = '1';
+      extraHeaders['Discourse-Track-View-Topic-Id'] = id.toString();
+    }
+
+    return await this.http.get(path, Object.keys(params).length > 0 ? params : null, null, null, null, extraHeaders);
   }
 
   /**
@@ -1242,6 +1252,28 @@ export class ApiClient {
     form['post_action_type_id'] = ApiClient.LIKE_POST_ACTION_TYPE_ID.toString();
     form['flag_topic'] = 'false';
     await this.http.postFormText(ApiConstants.POST_ACTION, form);
+  }
+
+  async sendTopicTimings(topicId: number, topicTime: number, timings: Map<number, number>): Promise<number> {
+    if (topicId <= 0 || topicTime <= 0 || timings.size === 0) {
+      return 200;
+    }
+    const form: Record<string, Object> = {};
+    form['topic_id'] = topicId.toString();
+    form['topic_time'] = topicTime.toString();
+    timings.forEach((durationMs: number, postNumber: number) => {
+      if (postNumber > 0 && durationMs > 0) {
+        form[`timings[${postNumber}]`] = durationMs.toString();
+      }
+    });
+    if (Object.keys(form).length <= 2) {
+      return 200;
+    }
+    const headers: Record<string, string> = {};
+    headers['X-Requested-With'] = 'XMLHttpRequest';
+    headers['X-SILENCE-LOGGER'] = 'true';
+    headers['Discourse-Background'] = 'true';
+    return await this.http.postFormTextWithStatus(ApiConstants.TOPICS_TIMINGS, form, headers);
   }
 
   async unlikePost(postId: number): Promise<void> {

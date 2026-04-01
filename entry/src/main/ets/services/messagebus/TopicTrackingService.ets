@@ -57,6 +57,12 @@ class TrackedTopicState {
   }
 }
 
+export class TopicReadProgress {
+  lastReadPostNumber: number = 0;
+  highestPostNumber: number = 0;
+  isSeen: boolean = false;
+}
+
 /**
  * 话题追踪状态服务
  *
@@ -199,6 +205,49 @@ export class TopicTrackingService {
     return count;
   }
 
+  shouldShowUnreadDot(topicId: number): boolean {
+    if (topicId <= 0) {
+      return false;
+    }
+    if (!this.states.has(topicId)) {
+      return false;
+    }
+    const state: TrackedTopicState = this.states.get(topicId) as TrackedTopicState;
+    return this.isNew(state) || this.isUnread(state);
+  }
+
+  /**
+   * 获取某个话题的已读进度，供列表页同步 topic.unseen/unread/lastReadPostNumber。
+   * 返回 null 表示该话题无 tracking state。
+   */
+  getTopicReadProgress(topicId: number): TopicReadProgress | null {
+    if (topicId <= 0 || !this.states.has(topicId)) {
+      return null;
+    }
+    const s: TrackedTopicState = this.states.get(topicId) as TrackedTopicState;
+    const result: TopicReadProgress = new TopicReadProgress();
+    result.lastReadPostNumber = s.lastReadPostNumber !== null ? s.lastReadPostNumber as number : 0;
+    result.highestPostNumber = s.highestPostNumber;
+    result.isSeen = s.isSeen;
+    return result;
+  }
+
+  /**
+   * 立即标记话题为已看（unseen=false）。
+   * 用于进入话题详情页时，配合 Discourse-Track-View header 同步消除蓝点。
+   */
+  markTopicSeen(topicId: number): void {
+    if (topicId <= 0 || !this.states.has(topicId)) {
+      return;
+    }
+    const s: TrackedTopicState = this.states.get(topicId) as TrackedTopicState;
+    if (s.isSeen) {
+      return;
+    }
+    s.isSeen = true;
+    this.notify();
+  }
+
   incomingCount(categoryId: number | null = null): number {
     if (categoryId === null) return this.incomingTopics.size;
     let count: number = 0;
@@ -240,6 +289,68 @@ export class TopicTrackingService {
       }
     }
     return highest;
+  }
+
+  updateTopicRead(
+    topicId: number,
+    highestSeen: number,
+    highestPostNumber: number = 0,
+    categoryId: number | null = null,
+    notificationLevel: number | null = null
+  ): void {
+    if (topicId <= 0 || highestSeen <= 0) {
+      return;
+    }
+
+    const existing: TrackedTopicState | null = this.states.has(topicId)
+      ? (this.states.get(topicId) as TrackedTopicState)
+      : null;
+    const incomingHighest: number = this.incomingHighestPostNumbers.has(topicId)
+      ? (this.incomingHighestPostNumbers.get(topicId) as number)
+      : 0;
+    const nextHighest: number = Math.max(
+      highestSeen,
+      highestPostNumber,
+      incomingHighest,
+      existing !== null ? existing.highestPostNumber : 0,
+      1
+    );
+    const currentRead: number = existing !== null && existing.lastReadPostNumber !== null
+      ? (existing.lastReadPostNumber as number)
+      : 0;
+    const nextRead: number = Math.max(currentRead, Math.min(highestSeen, nextHighest));
+
+    const next: TrackedTopicState = new TrackedTopicState();
+    next.topicId = topicId;
+    next.lastReadPostNumber = nextRead;
+    next.highestPostNumber = nextHighest;
+    next.categoryId = categoryId !== null ? categoryId : (existing !== null ? existing.categoryId : null);
+    next.notificationLevel = notificationLevel !== null ? notificationLevel : (existing !== null ? existing.notificationLevel : 1);
+    next.createdInNewPeriod = existing !== null ? existing.createdInNewPeriod : false;
+    next.isSeen = true;
+
+    let changed: boolean = existing === null
+      || existing.lastReadPostNumber !== next.lastReadPostNumber
+      || existing.highestPostNumber !== next.highestPostNumber
+      || existing.categoryId !== next.categoryId
+      || existing.notificationLevel !== next.notificationLevel
+      || existing.createdInNewPeriod !== next.createdInNewPeriod
+      || existing.isSeen !== next.isSeen;
+
+    this.states.set(topicId, next);
+
+    if (this.incomingTopics.has(topicId)) {
+      this.incomingTopics.delete(topicId);
+      changed = true;
+    }
+    if (this.incomingHighestPostNumbers.has(topicId)) {
+      this.incomingHighestPostNumbers.delete(topicId);
+      changed = true;
+    }
+
+    if (changed) {
+      this.notify();
+    }
   }
 
   clearIncoming(categoryId: number | null = null): void {

@@ -64,15 +64,6 @@ export struct TopicCard {
               .textOverflow({ overflow: TextOverflow.Ellipsis })
               .layoutWeight(1)
               .lineHeight(20)
-
-            // 未读蓝点（仅 unseen）
-            if (this.topic.unseen) {
-              Circle()
-                .width(8)
-                .height(8)
-                .fill($r('app.color.primary'))
-                .margin({ left: 6, top: 5 })
-            }
           }
           .layoutWeight(1)
           .alignItems(VerticalAlign.Top)

@@ -64,6 +64,7 @@ export default class EntryAbility extends UIAbility {
   onForeground(): void {
     // Ability has brought to foreground
     hilog.info(DOMAIN, 'testTag', '%{public}s', 'Ability onForeground');
+    AppContext.setAppForeground(true);
     AppLogService.getInstance().info('lifecycle', 'ability onForeground', 'EntryAbility');
     try {
       CfClearanceRefreshService.getInstance().resume();
@@ -74,6 +75,7 @@ export default class EntryAbility extends UIAbility {
   onBackground(): void {
     // Ability has back to background
     hilog.info(DOMAIN, 'testTag', '%{public}s', 'Ability onBackground');
+    AppContext.setAppForeground(false);
     AppLogService.getInstance().info('lifecycle', 'ability onBackground', 'EntryAbility');
     try {
       CfClearanceRefreshService.getInstance().pause();
