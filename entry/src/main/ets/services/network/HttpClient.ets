@@ -955,7 +955,8 @@ export class HttpClient {
     params: Record<string, Object> | null = null,
     connectTimeoutMs: number | null = null,
     readTimeoutMs: number | null = null,
-    guardOptions: CfGuardOptions | null = null
+    guardOptions: CfGuardOptions | null = null,
+    extraHeaders: Record<string, string> | null = null
   ): Promise<string> {
     await this.cookieStore.init();
     let url: string = `${this.baseUrl}${path}`;
@@ -963,12 +964,17 @@ export class HttpClient {
 
     hilog.info(0x0000, TAG, 'GET %{public}s', url);
 
+    let headers: Record<string, string> | null = null;
+    if (extraHeaders !== null) {
+      headers = this.buildHeaders('application/json', 'application/json', extraHeaders);
+    }
+
     const resp: Record<string, Object> = await this.requestWithCfGuardDetailed(
       url,
       http.RequestMethod.GET,
       null,
       false,
-      null,
+      headers,
       connectTimeoutMs,
       readTimeoutMs,
       guardOptions,
@@ -1197,6 +1203,35 @@ export class HttpClient {
       return result;
     }
     throw new Error(`HTTP ${code}`);
+  }
+
+  /**
+   * POST 表单并返回 HTTP 状态码（不抛出异常，由调用方判断成功/失败）
+   */
+  async postFormTextWithStatus(
+    path: string,
+    form: Record<string, Object>,
+    extraHeaders: Record<string, string> | null = null,
+    readTimeoutMs: number = 60000,
+    connectTimeoutMs: number | null = null,
+    guardOptions: CfGuardOptions | null = null
+  ): Promise<number> {
+    await this.cookieStore.init();
+    const url: string = `${this.baseUrl}${path}`;
+    const body: string = this.encodeFormBody(form);
+    const resp: Record<string, Object> = await this.requestWithCsrfRetry(
+      url,
+      http.RequestMethod.POST,
+      body,
+      'application/json',
+      'application/x-www-form-urlencoded',
+      extraHeaders,
+      connectTimeoutMs,
+      readTimeoutMs,
+      guardOptions
+    );
+    const codeVal = resp['code'];
+    return codeVal !== undefined && codeVal !== null ? codeVal as number : 0;
   }
 
   async getNoCache(

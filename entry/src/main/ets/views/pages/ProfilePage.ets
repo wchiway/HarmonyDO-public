@@ -1455,7 +1455,7 @@ export struct ProfilePage {
         title: $r('app.string.profile_data_management'),
         subtitle: $r('app.string.profile_service_data_hint'),
         showDivider: true,
-        onClick: () => { this.showPendingToast('数据管理'); }
+        onClick: () => { RouterManager.pushDataManagement(); }
       })
       this.OptionItem({
         iconSymbol: $r('sys.symbol.info_circle'),

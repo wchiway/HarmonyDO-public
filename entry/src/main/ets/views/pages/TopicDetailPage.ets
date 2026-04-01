@@ -40,8 +40,10 @@ import { PostShareImageParams, postShareImageBuilder } from '../components/PostS
 import { PreferencesUtil } from '../../services/storage/PreferencesUtil';
 import { MAX_READ_LATER_ITEMS, ReadLaterService } from '../../services/storage/ReadLaterService';
 import { MessageBusMessage, MessageBusService } from '../../services/messagebus/MessageBusService';
+import { TopicTrackingService } from '../../services/messagebus/TopicTrackingService';
 import { PreloadedDataService } from '../../services/messagebus/PreloadedDataService';
 import { HoldingHandService, HoldingHandState } from '../../services/device/HoldingHandService';
+import { ScreenTrack, OnPostsRead } from '../../services/tracking/ScreenTrack';
 import {
   FLOATING_TAB_BAR_HEIGHT_VP,
   FLOATING_TAB_BAR_RADIUS_VP,
@@ -153,6 +155,9 @@ export struct TopicDetailPage {
   @Local postLikeMutatingPostId: number = 0;
   @Local postLikeUiVersion: number = 0;
   @Local postReactionUiVersion: number = 0;
+  @Local postReadUiVersion: number = 0;
+  @Local unreadDotBlinkOpacity: number = 1;
+  private unreadDotBlinkTimerId: number = -1;
   @Local animatedLikePostId: number = 0;
   @Local likeButtonScale: number = 1;
   @Local reactionPickerPostId: number = 0;
@@ -255,6 +260,8 @@ export struct TopicDetailPage {
   private lastVisibleStartIndex: number = 0;
   private lastVisibleEndIndex: number = 0;
   private pendingReplyScrollPostNumber: number = 0;
+  private sessionReadPostNumbers: Set<number> = new Set<number>();
+  private screenTrack: ScreenTrack | null = null;
   private postLikeStateOverrides: Map<number, boolean> = new Map();
   private postLikeCountOverrides: Map<number, number> = new Map();
   private postReactionOverrides: Map<number, PostReactionState> = new Map();
@@ -275,6 +282,7 @@ export struct TopicDetailPage {
   private reactionsChannelCallback: ((message: MessageBusMessage) => void) | null = null;
   private authStateListener: (() => void) | null = null;
   private holdingHandListener: ((status: HoldingHandState) => void) | null = null;
+  private appForegroundListener: ((isForeground: boolean) => void) | null = null;
   private topicChannelAttached: boolean = false;
   private pendingTopicCreatedPostIds: number[] = [];
   private realtimeFetchQueue: number[] = [];
@@ -284,10 +292,12 @@ export struct TopicDetailPage {
   aboutToAppear(): void {
     this.didScrollToInitial = false;
     this.targetPostNumber = this.initialPostNumber;
+    this.createScreenTrack();
     this.startTimeTick();
     this.attachAuthStateListener();
     this.attachHoldingHandListener();
     this.attachReadLaterListener();
+    this.attachAppForegroundListener();
     this.initAuthState();
     this.syncReadLaterState().catch(() => {
     });
@@ -306,10 +316,23 @@ export struct TopicDetailPage {
         this.shareImageThemeIndex = 0;
       });
 
-    this.loadTopicDetail();
+    this.loadTopicDetail(true);
   }
 
   aboutToDisappear(): void {
+    // Use the more accurate highestSeen from ScreenTrack before stopping it
+    if (this.screenTrack !== null) {
+      const trackHighest: number = (this.screenTrack as ScreenTrack).getHighestSeen();
+      if (trackHighest > 0) {
+        this.syncTopicTrackingReadProgress(Math.max(this.currentPostIndex, trackHighest));
+      } else {
+        this.syncTopicTrackingReadProgress();
+      }
+      (this.screenTrack as ScreenTrack).stop();
+    } else {
+      this.syncTopicTrackingReadProgress();
+    }
+    this.stopUnreadDotBlink();
     this.stopTimeTick();
     this.closeShareImageSheet();
     this.closeExportSheet();
@@ -323,6 +346,7 @@ export struct TopicDetailPage {
     this.detachAuthStateListener();
     this.detachHoldingHandListener();
     this.detachReadLaterListener();
+    this.detachAppForegroundListener();
   }
 
   private attachAuthStateListener(): void {
@@ -382,6 +406,26 @@ export struct TopicDetailPage {
     }
     ReadLaterService.getInstance().removeListener(this.readLaterListener);
     this.readLaterListener = null;
+  }
+
+  private attachAppForegroundListener(): void {
+    if (this.appForegroundListener !== null) {
+      return;
+    }
+    this.appForegroundListener = (isForeground: boolean) => {
+      if (this.screenTrack !== null) {
+        (this.screenTrack as ScreenTrack).setHasFocus(isForeground);
+      }
+    };
+    AppContext.addAppForegroundListener(this.appForegroundListener);
+  }
+
+  private detachAppForegroundListener(): void {
+    if (this.appForegroundListener === null) {
+      return;
+    }
+    AppContext.removeAppForegroundListener(this.appForegroundListener);
+    this.appForegroundListener = null;
   }
 
   private async syncReadLaterState(): Promise<void> {
@@ -2070,12 +2114,14 @@ export struct TopicDetailPage {
   /**
    * 加载话题详情
    */
-  async loadTopicDetail(): Promise<void> {
+  async loadTopicDetail(trackVisit: boolean = false): Promise<void> {
     if (this.topicId <= 0) {
       this.errorMessage = '无效的话题ID';
       this.isLoading = false;
       return;
     }
+
+    const preservedSessionReadPostNumbers: Set<number> = new Set(this.sessionReadPostNumbers);
 
     const requestedPostNumber: number = this.targetPostNumber > 0 ? this.targetPostNumber : 0;
     const requestedFilter: string = this.isSummaryMode ? 'summary' : '';
@@ -2133,6 +2179,8 @@ export struct TopicDetailPage {
     this.replyCount = 0;
     this.postsCount = 0;
     this.currentPostIndex = requestedPostNumber > 0 ? requestedPostNumber : 1;
+    this.sessionReadPostNumbers = preservedSessionReadPostNumbers;
+    this.postReadUiVersion = this.postReadUiVersion + 1;
     this.scrollOffset = 0;
     this.showTitle = false;
     this.showBottomBar = true;
@@ -2157,7 +2205,8 @@ export struct TopicDetailPage {
         this.topicId,
         requestedPostNumber,
         requestedFilter,
-        requestedUsernameFilters
+        requestedUsernameFilters,
+        trackVisit && !this.isGuestMode
       );
       const json: Record<string, Object> = JSON.parse(result) as Record<string, Object>;
 
@@ -2296,6 +2345,8 @@ export struct TopicDetailPage {
       this.acceptedAnswerPostNumber = this.resolveAcceptedAnswerPostNumber(json, parsedPosts);
       this.hasAcceptedAnswer = this.resolveHasAcceptedAnswer(json, parsedPosts, this.acceptedAnswerPostNumber);
       this.posts = parsedPosts;
+      this.initializeSessionReadPosts(parsedPosts);
+      this.mergeSessionReadPosts(preservedSessionReadPostNumbers);
       this.updateTopicOwnerUsername();
 
       // 总帖子数优先取 stream；兜底 highest_post_number / posts_count / 已加载 posts
@@ -2331,6 +2382,9 @@ export struct TopicDetailPage {
     } finally {
       this.isLoading = false;
       if (this.errorMessage.length === 0) {
+        if (!this.isGuestMode && this.topicId > 0 && this.screenTrack !== null) {
+          (this.screenTrack as ScreenTrack).start(this.topicId);
+        }
         this.scrollToInitialPostIfNeeded();
       }
     }
@@ -2643,6 +2697,12 @@ export struct TopicDetailPage {
     }
     if (changed) {
       this.posts = posts;
+      if (updatedPost.postNumber > 0 && updatedPost.read) {
+        if (!this.sessionReadPostNumbers.has(updatedPost.postNumber)) {
+          this.sessionReadPostNumbers.add(updatedPost.postNumber);
+          this.postReadUiVersion = this.postReadUiVersion + 1;
+        }
+      }
     }
 
     if (this.expandedReplies.length > 0) {
@@ -2990,7 +3050,146 @@ export struct TopicDetailPage {
 
     if (next !== this.currentPostIndex) {
       this.currentPostIndex = next;
+      this.syncTopicTrackingReadProgress(next);
     }
+
+    // Collect visible post numbers from lastVisibleStartIndex..lastVisibleEndIndex and feed ScreenTrack
+    if (this.screenTrack !== null) {
+      const visiblePostNumbers: Set<number> = new Set<number>();
+      let viStart: number = this.lastVisibleStartIndex - postStartIndex;
+      let viEnd: number = this.lastVisibleEndIndex - postStartIndex;
+      if (viStart < 0) {
+        viStart = 0;
+      }
+      if (viEnd >= this.posts.length) {
+        viEnd = this.posts.length - 1;
+      }
+      for (let vi = viStart; vi <= viEnd; vi++) {
+        const pn: number = this.posts[vi].postNumber;
+        if (pn > 0) {
+          visiblePostNumbers.add(pn);
+        }
+      }
+      (this.screenTrack as ScreenTrack).setOnscreen(visiblePostNumbers);
+      (this.screenTrack as ScreenTrack).scrolled();
+    }
+  }
+
+  private initializeSessionReadPosts(posts: Post[]): void {
+    this.sessionReadPostNumbers.clear();
+    for (let i = 0; i < posts.length; i++) {
+      const post: Post = posts[i];
+      if (post.postNumber > 0 && post.read) {
+        this.sessionReadPostNumbers.add(post.postNumber);
+      }
+    }
+    this.postReadUiVersion = this.postReadUiVersion + 1;
+  }
+
+  private markPostsReadInSession(postNumbers: number[]): void {
+    let changed: boolean = false;
+    for (let i = 0; i < postNumbers.length; i++) {
+      const postNumber: number = postNumbers[i];
+      if (postNumber > 0 && !this.sessionReadPostNumbers.has(postNumber)) {
+        this.sessionReadPostNumbers.add(postNumber);
+        changed = true;
+      }
+    }
+    if (changed) {
+      this.postReadUiVersion = this.postReadUiVersion + 1;
+    }
+  }
+
+  private mergeSessionReadPosts(postNumbers: Set<number>): void {
+    if (postNumbers.size === 0) {
+      return;
+    }
+    let changed: boolean = false;
+    postNumbers.forEach((postNumber: number) => {
+      if (postNumber > 0 && !this.sessionReadPostNumbers.has(postNumber)) {
+        this.sessionReadPostNumbers.add(postNumber);
+        changed = true;
+      }
+    });
+    if (changed) {
+      this.postReadUiVersion = this.postReadUiVersion + 1;
+    }
+  }
+
+  private shouldShowUnreadPostDot(post: Post): boolean {
+    this.postReadUiVersion;
+    return post.postNumber > 0 && !post.read && !this.sessionReadPostNumbers.has(post.postNumber);
+  }
+
+  private createScreenTrack(): void {
+    this.screenTrack = new ScreenTrack((topicId: number, postNumbers: Set<number>, highestSeen: number) => {
+      // 1) Update tracking state (drives list-page unseen/unread badge via TopicTrackingService.notify)
+      const effectiveHighestPostNumber: number = Math.max(
+        this.topicTotalPostsCount,
+        this.postsCount,
+        this.streamIds.length,
+        this.posts.length,
+        highestSeen
+      );
+      TopicTrackingService.getInstance().updateTopicRead(
+        topicId,
+        highestSeen,
+        effectiveHighestPostNumber,
+        this.topicCategoryId > 0 ? this.topicCategoryId : null,
+        this.notificationLevel
+      );
+
+      // 2) Mark posts read in session (post-level blue dots disappear)
+      const ackedPostNumbers: number[] = [];
+      postNumbers.forEach((pn: number) => {
+        ackedPostNumbers.push(pn);
+      });
+      this.markPostsReadInSession(ackedPostNumbers);
+    }, (postNumbers: Set<number>) => {
+      // Optimistic read: mark posts read locally after 2s visible, no need to wait for network
+      const readNumbers: number[] = [];
+      postNumbers.forEach((pn: number) => {
+        readNumbers.push(pn);
+      });
+      this.markPostsReadInSession(readNumbers);
+    });
+    this.startUnreadDotBlink();
+  }
+
+  private startUnreadDotBlink(): void {
+    if (this.unreadDotBlinkTimerId >= 0) {
+      return;
+    }
+    this.unreadDotBlinkTimerId = setInterval(() => {
+      this.unreadDotBlinkOpacity = this.unreadDotBlinkOpacity > 0.5 ? 0.15 : 1;
+    }, 520);
+  }
+
+  private stopUnreadDotBlink(): void {
+    if (this.unreadDotBlinkTimerId >= 0) {
+      clearInterval(this.unreadDotBlinkTimerId);
+      this.unreadDotBlinkTimerId = -1;
+    }
+  }
+
+  private syncTopicTrackingReadProgress(postNumber: number = this.currentPostIndex): void {
+    if (this.topicId <= 0 || postNumber <= 0) {
+      return;
+    }
+    const effectiveHighestPostNumber: number = Math.max(
+      this.topicTotalPostsCount,
+      this.postsCount,
+      this.streamIds.length,
+      this.posts.length,
+      postNumber
+    );
+    TopicTrackingService.getInstance().updateTopicRead(
+      this.topicId,
+      postNumber,
+      effectiveHighestPostNumber,
+      this.topicCategoryId > 0 ? this.topicCategoryId : null,
+      this.notificationLevel
+    );
   }
 
   private getNotificationLevelLabel(level: number): string {
@@ -6550,9 +6749,22 @@ export struct TopicDetailPage {
             }
 
             Column() {
-              Text(TimeUtils.formatRelativeTime(post.createdAt, this.timeTick))
-                .fontSize(11)
-                .fontColor($r('app.color.on_surface_secondary'))
+              Stack({ alignContent: Alignment.TopEnd }) {
+                Text(TimeUtils.formatRelativeTime(post.createdAt, this.timeTick))
+                  .fontSize(11)
+                  .fontColor($r('app.color.on_surface_secondary'))
+                if (this.shouldShowUnreadPostDot(post)) {
+                  Circle()
+                    .width(6)
+                    .height(6)
+                    .fill($r('app.color.primary'))
+                    .border({ width: 1, color: $r('app.color.surface') })
+                    .margin({ top: -2, right: -6 })
+                    .opacity(this.unreadDotBlinkOpacity)
+                    .animation({ duration: 400, curve: Curve.EaseInOut })
+                    .transition(TransitionEffect.OPACITY.animation({ duration: 300, curve: Curve.EaseOut }))
+                }
+              }
               Text(`#${post.postNumber}`)
                 .fontSize(10)
                 .fontColor($r('app.color.on_surface_tertiary'))

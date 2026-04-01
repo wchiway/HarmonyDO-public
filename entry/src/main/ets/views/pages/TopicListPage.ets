@@ -15,7 +15,7 @@ import { RouterManager, RouteConstants } from '../../common/utils/RouterManager'
 import { PillIconButton, PillMenuButton, SORT_FILTER_OPTIONS, SORT_FILTER_OPTIONS_LOGGED_IN, SORT_ORDER_OPTIONS } from '../components/PillControls';
 import { DEFAULT_AVAILABLE_TAGS, TagChip, TagSelectionSheet } from '../components/TagControls';
 import { WindowManager } from '../../common/utils/WindowManager';
-import { TopicTrackingService } from '../../services/messagebus/TopicTrackingService';
+import { TopicTrackingService, TopicReadProgress } from '../../services/messagebus/TopicTrackingService';
 import { NotificationTrackingService } from '../../services/messagebus/NotificationTrackingService';
 import { TopicListPreferences } from '../../services/storage/TopicListPreferences';
 import { HoldingHandService, HoldingHandState } from '../../services/device/HoldingHandService';
@@ -1536,6 +1536,25 @@ export struct TopicListPage {
       if (effectiveReplyCount > t.replyCount) {
         t.replyCount = effectiveReplyCount;
         changed = true;
+      }
+
+      // Sync unseen/unread/lastReadPostNumber from tracking state
+      const progress: TopicReadProgress | null = svc.getTopicReadProgress(t.id);
+      if (progress !== null) {
+        const p: TopicReadProgress = progress as TopicReadProgress;
+        if (p.isSeen && t.unseen) {
+          t.unseen = false;
+          changed = true;
+        }
+        if (p.lastReadPostNumber > t.lastReadPostNumber) {
+          t.lastReadPostNumber = p.lastReadPostNumber;
+          changed = true;
+        }
+        const newUnread: number = Math.max(0, t.highestPostNumber - t.lastReadPostNumber);
+        if (newUnread !== t.unread) {
+          t.unread = newUnread;
+          changed = true;
+        }
       }
     }
 

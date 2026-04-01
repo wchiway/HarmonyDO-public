@@ -593,6 +593,106 @@
       "value": "缓存、导出与清理"
     },
     {
+      "name": "dm_page_title",
+      "value": "数据管理"
+    },
+    {
+      "name": "dm_hero_title",
+      "value": "数据管理"
+    },
+    {
+      "name": "dm_hero_subtitle",
+      "value": "管理应用缓存与本地数据，释放存储空间"
+    },
+    {
+      "name": "dm_section_cache_title",
+      "value": "缓存管理"
+    },
+    {
+      "name": "dm_section_cache_subtitle",
+      "value": "清除应用产生的临时文件与网络缓存"
+    },
+    {
+      "name": "dm_image_cache_title",
+      "value": "图片与文件缓存"
+    },
+    {
+      "name": "dm_image_cache_subtitle",
+      "value": "清除图片、下载文件等临时缓存数据"
+    },
+    {
+      "name": "dm_cookie_cache_title",
+      "value": "Cookie 缓存"
+    },
+    {
+      "name": "dm_cookie_cache_subtitle",
+      "value": "清除登录凭据与会话信息，需重新登录"
+    },
+    {
+      "name": "dm_clear_all_title",
+      "value": "清除所有缓存"
+    },
+    {
+      "name": "dm_clear_all_subtitle",
+      "value": "同时清除图片缓存与 Cookie，需重新登录"
+    },
+    {
+      "name": "dm_section_auto_title",
+      "value": "自动管理"
+    },
+    {
+      "name": "dm_section_auto_subtitle",
+      "value": "配置缓存的自动清理策略"
+    },
+    {
+      "name": "dm_clear_on_exit_title",
+      "value": "退出时清除图片缓存"
+    },
+    {
+      "name": "dm_clear_on_exit_subtitle",
+      "value": "下次启动时自动清除图片与文件缓存"
+    },
+    {
+      "name": "dm_clear_button",
+      "value": "清除"
+    },
+    {
+      "name": "dm_clear_success",
+      "value": "已清除"
+    },
+    {
+      "name": "dm_clear_failed",
+      "value": "清除失败"
+    },
+    {
+      "name": "dm_confirm_cookie_title",
+      "value": "清除 Cookie 缓存"
+    },
+    {
+      "name": "dm_confirm_cookie_message",
+      "value": "清除后需要重新登录，确定继续？"
+    },
+    {
+      "name": "dm_confirm_all_title",
+      "value": "清除所有缓存"
+    },
+    {
+      "name": "dm_confirm_all_message",
+      "value": "将清除所有缓存数据并退出登录，确定继续？"
+    },
+    {
+      "name": "dm_confirm_ok",
+      "value": "确认清除"
+    },
+    {
+      "name": "dm_confirm_cancel",
+      "value": "取消"
+    },
+    {
+      "name": "dm_calculating",
+      "value": "计算中..."
+    },
+    {
       "name": "profile_service_about_hint",
       "value": "版本信息与项目说明"
     },

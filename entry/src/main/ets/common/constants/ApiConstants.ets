@@ -77,6 +77,9 @@ export class ApiConstants {
   /** 浏览历史 */
   static readonly READ_HISTORY: string = '/read.json';
 
+  /** 上报话题阅读时长 */
+  static readonly TOPICS_TIMINGS: string = '/topics/timings';
+
   /** 分类下话题 */
   static categoryTopics(slug: string, id: number): string {
     return `/c/${slug}/${id}/l/latest.json`;

@@ -27,6 +27,7 @@ export class RouteConstants {
   static readonly PAGE_OPEN_SOURCE_INFO: string = 'OpenSourceInfo';
   static readonly PAGE_APP_LOGS: string = 'AppLogs';
   static readonly PAGE_FEATURE_SETTINGS: string = 'FeatureSettings';
+  static readonly PAGE_DATA_MANAGEMENT: string = 'DataManagement';
 }
 
 /**
@@ -277,6 +278,10 @@ export class RouterManager {
 
   static pushFeatureSettings(): void {
     RouterManager.pushPath(RouteConstants.PAGE_FEATURE_SETTINGS);
+  }
+
+  static pushDataManagement(): void {
+    RouterManager.pushPath(RouteConstants.PAGE_DATA_MANAGEMENT);
   }
 
   /**
