@@ -232,22 +232,6 @@ export class TopicTrackingService {
     return result;
   }
 
-  /**
-   * 立即标记话题为已看（unseen=false）。
-   * 用于进入话题详情页时，配合 Discourse-Track-View header 同步消除蓝点。
-   */
-  markTopicSeen(topicId: number): void {
-    if (topicId <= 0 || !this.states.has(topicId)) {
-      return;
-    }
-    const s: TrackedTopicState = this.states.get(topicId) as TrackedTopicState;
-    if (s.isSeen) {
-      return;
-    }
-    s.isSeen = true;
-    this.notify();
-  }
-
   incomingCount(categoryId: number | null = null): number {
     if (categoryId === null) return this.incomingTopics.size;
     let count: number = 0;

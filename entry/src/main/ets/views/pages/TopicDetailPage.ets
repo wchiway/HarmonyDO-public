@@ -2385,11 +2385,6 @@ export struct TopicDetailPage {
         if (!this.isGuestMode && this.topicId > 0 && this.screenTrack !== null) {
           (this.screenTrack as ScreenTrack).start(this.topicId);
         }
-        // Immediately mark topic as seen (server already recorded visit via Discourse-Track-View)
-        // This ensures the blue dot disappears when user returns to the list page
-        if (!this.isGuestMode && this.topicId > 0 && trackVisit) {
-          TopicTrackingService.getInstance().markTopicSeen(this.topicId);
-        }
         this.scrollToInitialPostIfNeeded();
       }
     }

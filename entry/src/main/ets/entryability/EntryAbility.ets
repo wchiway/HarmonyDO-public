@@ -7,6 +7,7 @@ import { CfClearanceRefreshService } from '../services/network/CfClearanceRefres
 import { AppContext } from '../common/utils/AppContext';
 import { AppLogService } from '../common/utils/AppLogService';
 import { FeatureSettingsService } from '../services/storage/FeatureSettingsService';
+import { fileIo } from '@kit.CoreFileKit';
 
 const DOMAIN = 0x0000;
 
@@ -29,6 +30,35 @@ export default class EntryAbility extends UIAbility {
     } catch (_) {
     }
     AppLogService.getInstance().info('lifecycle', 'ability onCreate', 'EntryAbility');
+    this.clearCacheOnExitIfNeeded();
+  }
+
+  private clearCacheOnExitIfNeeded(): void {
+    PreferencesUtil.ensureInit().then(() => {
+      return PreferencesUtil.getBoolean('pref_clear_cache_on_exit', false);
+    }).then((shouldClear: boolean) => {
+      if (!shouldClear) return;
+      const cacheDir: string = this.context.cacheDir;
+      let entries: string[] = [];
+      try {
+        entries = fileIo.listFileSync(cacheDir);
+      } catch (_) {
+        return;
+      }
+      for (let i = 0; i < entries.length; i++) {
+        const fullPath: string = `${cacheDir}/${entries[i]}`;
+        try {
+          const stat: fileIo.Stat = fileIo.statSync(fullPath);
+          if (stat.isDirectory()) {
+            fileIo.rmdirSync(fullPath);
+          } else {
+            fileIo.unlinkSync(fullPath);
+          }
+        } catch (_) {
+        }
+      }
+      hilog.info(DOMAIN, 'testTag', 'Cache cleared on startup (pref_clear_cache_on_exit)');
+    }).catch(() => {});
   }
 
   onDestroy(): void {

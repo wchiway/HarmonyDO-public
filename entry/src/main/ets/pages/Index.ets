@@ -22,6 +22,7 @@ import { AboutAppPage } from '../views/pages/AboutAppPage';
 import { OpenSourceInfoPage } from '../views/pages/OpenSourceInfoPage';
 import { AppLogsPage } from '../views/pages/AppLogsPage';
 import { FeatureSettingsPage } from '../views/pages/FeatureSettingsPage';
+import { DataManagementPage } from '../views/pages/DataManagementPage';
 import { CfRefreshHost } from '../views/components/CfRefreshHost';
 import { ReadLaterBubble } from '../views/components/ReadLaterBubble';
 import { Topic } from '../models/Topic';
@@ -419,6 +420,8 @@ struct Index {
       AppLogsPage()
     } else if (name === RouteConstants.PAGE_FEATURE_SETTINGS) {
       FeatureSettingsPage()
+    } else if (name === RouteConstants.PAGE_DATA_MANAGEMENT) {
+      DataManagementPage()
     }
   }
 
