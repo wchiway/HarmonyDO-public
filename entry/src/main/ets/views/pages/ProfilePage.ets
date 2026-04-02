@@ -1250,7 +1250,7 @@ export struct ProfilePage {
   private LoggedInQuickAccessCard() {
     Column() {
       this.SectionHeader($r('app.string.profile_section_workspace'), $r('app.string.profile_section_workspace_subtitle'))
-      Blank().height(16)
+      Blank().height(12)
 
       Row() {
         this.QuickAccessItem({
@@ -1261,7 +1261,6 @@ export struct ProfilePage {
           subtitle: $r('app.string.profile_workspace_topics_hint'),
           onClick: () => { this.openMyTopics(); }
         })
-        Blank().width(12)
         this.QuickAccessItem({
           iconSymbol: $r('sys.symbol.bookmark'),
           iconBgColor: '#FFF3E0',
@@ -1270,13 +1269,6 @@ export struct ProfilePage {
           subtitle: $r('app.string.profile_workspace_bookmarks_hint'),
           onClick: () => { this.openBookmarks(); }
         })
-      }
-      .width('100%')
-      .alignItems(VerticalAlign.Top)
-
-      Blank().height(12)
-
-      Row() {
         this.QuickAccessItem({
           iconSymbol: $r('sys.symbol.notepad'),
           iconBgColor: '#E0F2F1',
@@ -1285,7 +1277,6 @@ export struct ProfilePage {
           subtitle: $r('app.string.profile_workspace_drafts_hint'),
           onClick: () => { this.openDrafts(); }
         })
-        Blank().width(12)
         this.QuickAccessItem({
           iconSymbol: $r('sys.symbol.medal'),
           iconBgColor: '#FFF8E1',
@@ -1296,6 +1287,7 @@ export struct ProfilePage {
         })
       }
       .width('100%')
+      .justifyContent(FlexAlign.SpaceEvenly)
       .alignItems(VerticalAlign.Top)
     }
     .width('100%')
@@ -1350,51 +1342,26 @@ export struct ProfilePage {
   private QuickAccessItem(params: ProfileQuickActionItem) {
     Column() {
       Row() {
-        Row() {
-          SymbolGlyph(params.iconSymbol)
-            .fontSize(22)
-            .fontColor([params.iconColor])
-        }
-        .width(50)
-        .height(50)
-        .borderRadius(16)
-        .backgroundColor(this.getOptionIconBackground(params.iconBgColor, params.iconColor))
-        .justifyContent(FlexAlign.Center)
-        .alignItems(VerticalAlign.Center)
-
-        Blank().layoutWeight(1)
-
-        SymbolGlyph($r('sys.symbol.chevron_right'))
-          .fontSize(14)
-          .fontColor([$r('app.color.on_surface_tertiary')])
+        SymbolGlyph(params.iconSymbol)
+          .fontSize(22)
+          .fontColor([params.iconColor])
       }
-      .width('100%')
+      .width(44)
+      .height(44)
+      .borderRadius(14)
+      .backgroundColor(this.getOptionIconBackground(params.iconBgColor, params.iconColor))
+      .justifyContent(FlexAlign.Center)
       .alignItems(VerticalAlign.Center)
 
       Text(params.title)
-        .fontSize(15)
-        .fontWeight(FontWeight.Bold)
-        .fontColor($r('app.color.on_surface'))
-        .textAlign(TextAlign.Start)
-        .maxLines(1)
-        .textOverflow({ overflow: TextOverflow.Ellipsis })
-        .margin({ top: 14 })
-
-      Text(params.subtitle)
         .fontSize(12)
-        .fontColor($r('app.color.on_surface_secondary'))
+        .fontColor($r('app.color.on_surface'))
         .maxLines(1)
         .textOverflow({ overflow: TextOverflow.Ellipsis })
-        .margin({ top: 6 })
+        .margin({ top: 8 })
     }
-    .layoutWeight(1)
-    .height(122)
-    .padding({ left: 14, right: 14, top: 14, bottom: 14 })
-    .alignItems(HorizontalAlign.Start)
-    .justifyContent(FlexAlign.Start)
-    .backgroundColor(this.getQuickActionSurface(params.iconColor))
-    .borderRadius(18)
-    .border({ width: 1, color: this.getQuickActionBorder(params.iconColor) })
+    .alignItems(HorizontalAlign.Center)
+    .justifyContent(FlexAlign.Center)
     .onClick(() => {
       params.onClick();
     })
@@ -1592,14 +1559,6 @@ export struct ProfilePage {
   private getStatsChipBackground(): string {
     const accent: string = this.getHeaderAccentColor();
     return ThemeManager.hexWithAlpha(accent, WindowManager.isDarkMode() ? 0.22 : 0.10);
-  }
-
-  private getQuickActionSurface(iconColor: string): string {
-    return ThemeManager.hexWithAlpha(iconColor, WindowManager.isDarkMode() ? 0.18 : 0.06);
-  }
-
-  private getQuickActionBorder(iconColor: string): string {
-    return ThemeManager.hexWithAlpha(iconColor, WindowManager.isDarkMode() ? 0.26 : 0.10);
   }
 
   private getOptionIconBackground(iconBgColor: string, iconColor: string): string {
